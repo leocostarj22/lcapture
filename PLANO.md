@@ -27,11 +27,13 @@
 - [x] Resolução padrão pelo monitor onde está a janela
 
 ## Fase 4 — Microsoft Store (MSIX)
-- [ ] Criar conta em storedeveloper.microsoft.com e reservar o nome LCapture (autor)
+- [x] Conta "Leo Costa Developer" criada e nome LCapture reservado (Store ID 9MTK97FH4JQ0)
 - [x] Logótipos da Store (`tools/make-store-assets.ps1` → `packaging/Assets`)
 - [x] Manifesto MSIX (`packaging/AppxManifest.template.xml`): runFullTrust, câmera, microfone
 - [x] `tools/package-msix.ps1`: gera o .msix (e `-TestSign` para testar localmente)
 - [ ] Instalar o pacote de teste e correr o Windows App Certification Kit (precisa de admin)
-- [ ] Preencher a identidade real do Partner Center no pacote
-- [ ] Política de privacidade (URL público), descrição e capturas de ecrã neutras
-- [ ] Submeter para certificação
+- [x] Identidade real do Partner Center no pacote
+- [x] Política de privacidade no GitHub Pages, textos, capturas de ecrã e logótipos (`store/`)
+- [x] Envio 1 (v1.1.1.0) submetido para certificação em 14/11/2026
+- [ ] Aguardar certificação; corrigir o que o relatório apontar
+- [ ] Depois de publicado: link https://apps.microsoft.com/detail/9MTK97FH4JQ0 no README
