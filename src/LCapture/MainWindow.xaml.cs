@@ -117,7 +117,7 @@ public partial class MainWindow : Window
                                     "vídeo (Área de Trabalho Remota, máquina virtual ou driver genérico).";
         }
 
-        if (DevicesCombo.SelectedItem is DeviceInformation device)
+        if (SelectedVideoDevice is DeviceInformation device)
             await StartCaptureAsync(device);
 
         StartDeviceWatcher();
@@ -150,10 +150,23 @@ public partial class MainWindow : Window
         await RefreshDevicesAsync();
 
         if (!_isStreaming && _reconnectDeviceId is not null &&
-            DevicesCombo.SelectedItem is DeviceInformation device && device.Id == _reconnectDeviceId)
+            SelectedVideoDevice is DeviceInformation device && device.Id == _reconnectDeviceId)
         {
             await StartCaptureAsync(device);
         }
+    }
+
+    private DeviceInformation? SelectedVideoDevice => (DevicesCombo.SelectedItem as VideoSourceItem)?.Device;
+
+    /// <summary>
+    /// List item for a video source. WinRT DeviceInformation is a COM object, and WPF reads
+    /// properties of COM objects through a WinForms type descriptor that the self-contained
+    /// (WPF-only) build does not ship, so the combo must never bind to it directly.
+    /// </summary>
+    private sealed record VideoSourceItem(DeviceInformation Device)
+    {
+        public string Name => Device.Name;
+        public override string ToString() => Name;
     }
 
     private async Task LoadDevicesAsync()
@@ -162,7 +175,7 @@ public partial class MainWindow : Window
             SetStatus("Procurando fontes de vídeo...");
         var previouslySelectedId = _currentDeviceId
                                    ?? _reconnectDeviceId
-                                   ?? (DevicesCombo.SelectedItem as DeviceInformation)?.Id
+                                   ?? SelectedVideoDevice?.Id
                                    ?? _settings.DeviceId;
 
         IReadOnlyList<DeviceInformation> devices;
@@ -180,10 +193,12 @@ public partial class MainWindow : Window
         _suppressDeviceEvent = true;
         try
         {
-            DevicesCombo.ItemsSource = devices;
-            DevicesCombo.SelectedItem = devices.Count == 0
+            var items = devices.Select(d => new VideoSourceItem(d)).ToList();
+            var chosen = devices.Count == 0
                 ? null
                 : devices.FirstOrDefault(d => d.Id == previouslySelectedId) ?? VideoCaptureService.PickDefault(devices);
+            DevicesCombo.ItemsSource = items;
+            DevicesCombo.SelectedItem = items.FirstOrDefault(i => i.Device == chosen);
         }
         finally
         {
@@ -226,7 +241,7 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task LoadAudioDevicesAsync(bool keepCurrent)
     {
-        var video = DevicesCombo.SelectedItem as DeviceInformation;
+        var video = SelectedVideoDevice;
         var currentId = keepCurrent ? (AudioDevicesCombo.SelectedItem as MMDevice)?.ID : null;
         var savedId = video is not null && video.Id == _settings.DeviceId ? _settings.AudioDeviceId : null;
 
@@ -255,7 +270,7 @@ public partial class MainWindow : Window
     {
         if (_suppressDeviceEvent) return;
 
-        var device = DevicesCombo.SelectedItem as DeviceInformation;
+        var device = SelectedVideoDevice;
         if (_isStreaming && device?.Id == _currentDeviceId) return;
 
         _reconnectDeviceId = null; // The user picked something else; stop waiting for the old source.
@@ -274,7 +289,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (DevicesCombo.SelectedItem is DeviceInformation device)
+        if (SelectedVideoDevice is DeviceInformation device)
             await StartCaptureAsync(device);
         else
             SetStatus("Selecione uma fonte de vídeo primeiro.");
@@ -406,7 +421,7 @@ public partial class MainWindow : Window
         {
             await _capture.StartAsync(format);
             SetStatus($"Exibindo: {_currentDeviceName} — {format}", StatusLevel.Success);
-            if (DevicesCombo.SelectedItem is DeviceInformation device)
+            if (SelectedVideoDevice is DeviceInformation device)
                 SaveSettings(device.Id, format);
         }
         catch (Exception ex)
