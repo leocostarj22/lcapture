@@ -13,7 +13,8 @@
 - [x] Script `tools/publish.ps1`: build self-contained (não precisa de .NET instalado)
 - [x] Instalador Inno Setup (`installer/LCapture.iss`): atalhos, desinstalador, aviso de privacidade da câmera
 - [x] Instalador mais leve: só NAudio.Wasapi (sem WinForms) e traduções pt/en (61 → 53 MB)
-- [ ] Assinatura de código (Azure Trusted Signing) — decisão/conta do autor
+- [x] `publish.ps1` pronto para assinar (Azure Trusted Signing: -SignMetadata/-SignDlib)
+- [ ] Criar a conta Trusted Signing e assinar a primeira versão — depende do autor
 
 ## Fase 3 — Desempenho e experiência
 - [x] Menos trabalho na CPU por frame: Media Foundation entrega Bgra8 (fallback para o

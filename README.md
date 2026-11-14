@@ -70,6 +70,26 @@ código publicamente confiável (certificado autoassinado NÃO satisfaz o Smart 
 desativar o Smart App Control em Segurança do Windows > Controle de aplicativos e navegador
 (atenção: depois de desligado, só volta com reinstalação do Windows).
 
+## Assinatura digital (para distribuir)
+
+Sem assinatura, o SmartScreen avisa ao abrir o instalador e o Smart App Control do Windows 11
+bloqueia o app. A opção mais barata é o **Azure Trusted Signing**:
+
+1. Criar a conta Trusted Signing no portal Azure, validar a identidade e criar um perfil de
+   certificado (Public Trust).
+2. Instalar o Windows SDK (para o `signtool.exe`) e o cliente
+   (`nuget install Microsoft.Trusted.Signing.Client`), que traz o `Azure.CodeSigning.Dlib.dll`.
+3. Criar um `metadata.json`:
+   ```json
+   { "Endpoint": "https://<região>.codesigning.azure.net", "CodeSigningAccountName": "<conta>",
+     "CertificateProfileName": "<perfil>" }
+   ```
+4. `az login` e depois:
+   ```powershell
+   powershell -File tools\publish.ps1 -SignMetadata metadata.json -SignDlib <caminho>\Azure.CodeSigning.Dlib.dll
+   ```
+   Assina o `LCapture.exe`/`.dll`, as DLLs do NAudio e o instalador.
+
 ## Se a imagem não aparecer
 
 O Windows bloqueia por padrão o acesso de aplicativos de área de trabalho (Win32) à câmera. Se o
