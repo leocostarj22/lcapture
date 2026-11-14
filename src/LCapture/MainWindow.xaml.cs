@@ -36,7 +36,7 @@ public partial class MainWindow : Window
 
     private WriteableBitmap? _previewBitmap;
     private readonly object _pendingLock = new();
-    private SoftwareBitmap? _pendingBitmap;
+    private CapturedFrame? _pendingFrame;
     private bool _renderQueued;
 
     private bool _suppressFormatEvent;
@@ -468,14 +468,14 @@ public partial class MainWindow : Window
 
     // ---- Frame rendering (background thread -> UI thread, dropping stale frames) ----
 
-    private void OnFrameArrived(object? sender, SoftwareBitmap bitmap)
+    private void OnFrameArrived(object? sender, CapturedFrame frame)
     {
-        SoftwareBitmap? previous;
+        CapturedFrame? previous;
         bool needsSchedule;
         lock (_pendingLock)
         {
-            previous = _pendingBitmap;
-            _pendingBitmap = bitmap;
+            previous = _pendingFrame;
+            _pendingFrame = frame;
             needsSchedule = !_renderQueued;
             _renderQueued = true;
         }
@@ -487,22 +487,22 @@ public partial class MainWindow : Window
 
     private void RenderPendingFrame()
     {
-        SoftwareBitmap? bitmap;
+        CapturedFrame? frame;
         lock (_pendingLock)
         {
-            bitmap = _pendingBitmap;
-            _pendingBitmap = null;
+            frame = _pendingFrame;
+            _pendingFrame = null;
             _renderQueued = false;
         }
-        if (bitmap is null) return;
+        if (frame is null) return;
 
         try
         {
-            UpdateWriteableBitmap(bitmap);
+            UpdateWriteableBitmap(frame.Bitmap);
         }
         finally
         {
-            bitmap.Dispose();
+            frame.Dispose();
         }
     }
 

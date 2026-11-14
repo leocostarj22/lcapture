@@ -1,9 +1,10 @@
-using LCapture.Models;
+﻿using LCapture.Models;
 using Windows.Devices.Enumeration;
 using Windows.Graphics.Imaging;
 using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
 using Windows.Media.Devices;
+using Windows.Media.MediaProperties;
 
 namespace LCapture.Services;
 
@@ -18,8 +19,8 @@ public sealed class VideoCaptureService : IAsyncDisposable
     private MediaFrameSource? _colorSource;
     private MediaFrameReader? _frameReader;
 
-    /// <summary>Raised on a background thread. The caller owns and must Dispose the bitmap.</summary>
-    public event EventHandler<SoftwareBitmap>? FrameArrived;
+    /// <summary>Raised on a background thread. The handler owns and must Dispose the frame.</summary>
+    public event EventHandler<CapturedFrame>? FrameArrived;
 
     public event EventHandler<string>? ErrorOccurred;
 
@@ -69,7 +70,7 @@ public sealed class VideoCaptureService : IAsyncDisposable
             g.SourceInfos.Any(si => si.DeviceInformation?.Id == deviceId));
 
         if (group is null)
-            throw new InvalidOperationException("NÃ£o foi possÃ­vel encontrar um grupo de captura para esta fonte de vÃ­deo.");
+            throw new InvalidOperationException("Não foi possível encontrar um grupo de captura para esta fonte de vídeo.");
 
         var mediaCapture = new MediaCapture();
         try
@@ -94,7 +95,7 @@ public sealed class VideoCaptureService : IAsyncDisposable
         if (colorSource is null)
         {
             mediaCapture.Dispose();
-            throw new InvalidOperationException("Esta fonte nÃ£o expÃµe um stream de vÃ­deo colorido.");
+            throw new InvalidOperationException("Esta fonte não expõe um stream de vídeo colorido.");
         }
 
         _mediaCapture = mediaCapture;
@@ -125,27 +126,42 @@ public sealed class VideoCaptureService : IAsyncDisposable
     public async Task StartAsync(CaptureFormatOption format)
     {
         if (_mediaCapture is null || _colorSource is null)
-            throw new InvalidOperationException("Nenhuma fonte de vÃ­deo aberta.");
+            throw new InvalidOperationException("Nenhuma fonte de vídeo aberta.");
 
         await StopReaderAsync();
 
         await _colorSource.SetFormatAsync(format.RawFormat);
 
-        // Read in the card's native subtype. Asking Media Foundation for Bgra8 here instead was
-        // tried and delivered only black frames on the Fifine AmpliGame (YUY2).
-        var reader = await _mediaCapture.CreateFrameReaderAsync(_colorSource, format.Subtype);
-        reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
-        reader.FrameArrived += OnReaderFrameArrived;
-
-        var status = await reader.StartAsync();
-        if (status != MediaFrameReaderStartStatus.Success)
-        {
-            reader.FrameArrived -= OnReaderFrameArrived;
-            reader.Dispose();
-            throw new InvalidOperationException($"Falha ao iniciar o stream de vÃ­deo ({status}).");
-        }
+        // Prefer Bgra8: Media Foundation converts from the card's native format (YUY2/NV12/MJPG)
+        // more cheaply than a per-frame SoftwareBitmap.Convert, and the frame can then go to the
+        // screen without an extra copy. Fall back to the native subtype if a device refuses it.
+        var reader = await TryStartReaderAsync(MediaEncodingSubtypes.Bgra8)
+                     ?? await TryStartReaderAsync(format.Subtype)
+                     ?? throw new InvalidOperationException("Falha ao iniciar o stream de vídeo.");
 
         _frameReader = reader;
+    }
+
+    private async Task<MediaFrameReader?> TryStartReaderAsync(string subtype)
+    {
+        MediaFrameReader reader;
+        try
+        {
+            reader = await _mediaCapture!.CreateFrameReaderAsync(_colorSource, subtype);
+        }
+        catch
+        {
+            return null;
+        }
+
+        reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
+        reader.FrameArrived += OnReaderFrameArrived;
+        if (await reader.StartAsync() == MediaFrameReaderStartStatus.Success)
+            return reader;
+
+        reader.FrameArrived -= OnReaderFrameArrived;
+        reader.Dispose();
+        return null;
     }
 
     public async Task StopReaderAsync()
@@ -175,17 +191,26 @@ public sealed class VideoCaptureService : IAsyncDisposable
 
     private void OnReaderFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
     {
-        using var frame = sender.TryAcquireLatestFrame();
-        if (frame?.VideoMediaFrame?.SoftwareBitmap is not SoftwareBitmap original)
+        var frame = sender.TryAcquireLatestFrame();
+        var handler = FrameArrived;
+        if (handler is null || frame?.VideoMediaFrame?.SoftwareBitmap is not SoftwareBitmap bitmap)
+        {
+            frame?.Dispose();
             return;
+        }
 
-        // The frame (and its bitmap) is released when this handler returns, so hand out a copy.
-        // The alpha channel is ignored by the preview, so any Bgra8 alpha mode is fine as-is.
-        var bitmap = original.BitmapPixelFormat == BitmapPixelFormat.Bgra8
-            ? SoftwareBitmap.Copy(original)
-            : SoftwareBitmap.Convert(original, BitmapPixelFormat.Bgra8);
+        if (bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8)
+        {
+            // No copy: the capture buffer stays alive until the UI has drawn it and disposes it.
+            // The preview ignores alpha, so any Bgra8 alpha mode is fine as-is.
+            handler(this, new CapturedFrame(bitmap, frame));
+            return;
+        }
 
-        FrameArrived?.Invoke(this, bitmap);
+        var converted = SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8);
+        bitmap.Dispose();
+        frame.Dispose();
+        handler(this, new CapturedFrame(converted, owner: null));
     }
 
     private void OnMediaCaptureFailed(MediaCapture sender, MediaCaptureFailedEventArgs errorEventArgs)

@@ -16,9 +16,9 @@
 - [ ] Assinatura de código (Azure Trusted Signing) — decisão/conta do autor
 
 ## Fase 3 — Desempenho e experiência
-- [ ] Menos cópias/conversão de frames na CPU — pedir Bgra8 ao MediaFrameReader deu ecrã
-      preto na Fifine; próxima tentativa: renderização Direct3D 11 (D3DImage) ou converter
-      YUY2 num shader
+- [x] Menos trabalho na CPU por frame: Media Foundation entrega Bgra8 (fallback para o
+      formato nativo) e o frame vai para o ecrã sem cópia intermédia — 1,23 → 0,87 núcleos
+      em 1080p60 (a 1.ª tentativa pareceu dar ecrã preto, mas era a consola sem imagem)
 - [x] Áudio: limitar a latência acumulada (descarta excesso acima de 100 ms; saída WASAPI 40 ms)
 - [x] Barra de ferramentas em linha própria (não tapa o vídeo); em ecrã inteiro/recolhida aparece ao passar o rato no topo
 - [x] Reconexão automática quando a placa é desligada/ligada (DeviceWatcher)
