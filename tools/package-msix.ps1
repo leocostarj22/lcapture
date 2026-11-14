@@ -3,11 +3,11 @@
 # a self-signed test certificate so it can be installed on this PC before submitting.
 #
 # Usage: powershell -File tools\package-msix.ps1 [-TestSign]
-#        [-IdentityName ... -Publisher "CN=..." -PublisherDisplayName ...]   (Partner Center > Product identity)
+# Identity defaults come from Partner Center > LCapture > Product identity (Store ID 9MTK97FH4JQ0).
 param(
-    [string]$IdentityName = "LCapture",
-    [string]$Publisher = "CN=leocostarj22",
-    [string]$PublisherDisplayName = "leocostarj22",
+    [string]$IdentityName = "LeoCostaDeveloper.LCapture",
+    [string]$Publisher = "CN=CE9F41C2-4777-48AC-8C39-FDEA0C7AE74E",
+    [string]$PublisherDisplayName = "Leo Costa Developer",
     [string]$Language = "pt-PT",
     [switch]$TestSign
 )
