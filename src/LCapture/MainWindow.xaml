@@ -1,0 +1,106 @@
+﻿<Window x:Class="LCapture.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:LCapture"
+        mc:Ignorable="d"
+        Title="LCapture — Visualizador de Captura de Vídeo"
+        Icon="Assets/app-icon.png"
+        Height="720" Width="1180"
+        MinHeight="360" MinWidth="560"
+        Background="{StaticResource BgBrush}"
+        WindowStartupLocation="CenterScreen"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewMouseMove="Window_PreviewMouseMove"
+        Closing="Window_Closing">
+    <Grid>
+        <!-- Preview area: always fills the whole window; the toolbar floats on top of it -->
+        <Border Background="Black" x:Name="PreviewArea"
+                MouseLeftButtonDown="PreviewArea_MouseLeftButtonDown">
+            <Grid>
+                <Image x:Name="PreviewImage" Stretch="Uniform" SnapsToDevicePixels="True"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                <TextBlock x:Name="NoSignalText" Text="Sem sinal"
+                           Foreground="#FF3A3A3F" FontSize="26" FontWeight="Light"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- Invisible hot zone at the very top: hovering it reveals a collapsed toolbar -->
+        <Border x:Name="ToolbarHoverZone" Height="14" VerticalAlignment="Top" Background="Transparent"
+                MouseEnter="ToolbarHoverZone_MouseEnter"/>
+
+        <!-- Toolbar, floating over the video -->
+        <Border x:Name="Toolbar" VerticalAlignment="Top" Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="16,14"
+                MouseLeave="Toolbar_MouseLeave">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <ComboBox x:Name="DevicesCombo" Width="180" DisplayMemberPath="Name" ToolTip="Fonte de vídeo"
+                              SelectionChanged="DevicesCombo_SelectionChanged"/>
+                    <Button x:Name="RefreshButton" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0"
+                            ToolTip="Atualizar dispositivos" Click="RefreshButton_Click">
+                        <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Button>
+
+                    <ComboBox x:Name="FormatsCombo" Width="240" Margin="16,0,0,0" ToolTip="Qualidade"
+                              SelectionChanged="FormatsCombo_SelectionChanged"/>
+
+                    <Border Width="1" Background="{StaticResource BorderSubtleBrush}" Margin="16,4" />
+
+                    <ComboBox x:Name="AudioDevicesCombo" Width="180" DisplayMemberPath="FriendlyName" ToolTip="Fonte de áudio"
+                              SelectionChanged="AudioDevicesCombo_SelectionChanged"/>
+                    <ToggleButton x:Name="MuteButton" Style="{StaticResource IconToggleButtonStyle}" Margin="6,0,0,0"
+                                  ToolTip="Mudo" Click="MuteButton_Click">
+                        <TextBlock x:Name="MuteIcon" Text="&#xE767;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </ToggleButton>
+                    <Slider x:Name="VolumeSlider" Width="100" Margin="10,0,0,0" Minimum="0" Maximum="1" Value="1"
+                            VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,0,0">
+                        <Button x:Name="StartStopButton" Style="{StaticResource AccentButtonStyle}" Content="Iniciar"
+                                Padding="20,7" Click="StartStopButton_Click"/>
+                        <ToggleButton x:Name="SharpenButton" Style="{StaticResource AccentIconToggleButtonStyle}" Margin="8,0,0,0"
+                                      ToolTip="Nitidez por GPU (desligada)" Checked="SharpenButton_Changed" Unchecked="SharpenButton_Changed">
+                            <TextBlock Text="&#xE706;" FontSize="15" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </ToggleButton>
+                        <Button x:Name="FullscreenButton" Style="{StaticResource IconButtonStyle}" Margin="8,0,0,0"
+                                ToolTip="Tela cheia (F11)" Click="FullscreenButton_Click">
+                            <TextBlock x:Name="FullscreenIcon" Text="&#xE740;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </Button>
+                        <Button x:Name="CollapseButton" Style="{StaticResource IconButtonStyle}" Margin="8,0,0,0"
+                                ToolTip="Ocultar barra" Click="CollapseButton_Click">
+                            <TextBlock x:Name="CollapseIcon" Text="&#xE70E;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="{StaticResource TextSecondaryBrush}"
+                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="StatusText" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="Selecione uma fonte de vídeo e clique em Iniciar."/>
+                    </StackPanel>
+
+                    <StackPanel x:Name="SharpenStrengthPanel" Grid.Column="1" Orientation="Horizontal"
+                                VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="False" Opacity="0.4"
+                                ToolTip="Intensidade da nitidez">
+                        <TextBlock Text="Nitidez" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <Slider x:Name="SharpenStrengthSlider" Width="120" Minimum="0" Maximum="1" Value="0.6"
+                                VerticalAlignment="Center" ValueChanged="SharpenStrengthSlider_ValueChanged"/>
+                        <TextBlock x:Name="SharpenValueText" Text="60%" Width="36" TextAlignment="Right"
+                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
