@@ -34,8 +34,19 @@ placa de captura, HDMI, consola, visualizador de vídeo, baixa latência, captur
 
 ## Notas de privacidade / URL
 
-URL da política de privacidade: (preencher depois de alojar store/privacidade.html)
+URL da política de privacidade: https://leocostarj22.github.io/lcapture/store/privacidade.html
 
 ## Requisitos (campo "Requisitos de sistema")
 
 Placa de captura de vídeo USB compatível com UVC (aparece no Windows como câmera).
+
+## Notas para a certificação (Opções de envio)
+
+O LCapture mostra em tempo real o vídeo e o áudio de uma placa de captura USB (UVC). Não é
+necessária uma placa de captura para testar: o app funciona com qualquer webcam, que escolhe
+automaticamente se não houver outra fonte. Não tem contas, compras nem ligação à internet.
+
+## Justificação do recurso restrito runFullTrust
+
+O LCapture é uma aplicação de ambiente de trabalho WPF (.NET 10) empacotada em MSIX. O recurso
+runFullTrust é necessário para que o executável Win32 corra como aplicação de ambiente de trabalho.
