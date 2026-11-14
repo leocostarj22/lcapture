@@ -106,3 +106,9 @@ app mostrar "Acesso negado", vá em:
   UI copiando o buffer de pixels diretamente (sem reamostrar), descartando frames antigos se a UI
   não conseguir acompanhar a taxa da placa — a tela sempre mostra o quadro mais recente disponível.
 - Nada é gravado, encodado ou enviado para disco/rede: é um visualizador puro.
+
+## Licença
+
+Copyright (c) 2026 Leo Costa Developer. Todos os direitos reservados — o código é público apenas
+para consulta (ver [LICENSE](LICENSE)). O LCapture inclui componentes de terceiros sob licença MIT
+(NAudio, runtime .NET), listados em [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).

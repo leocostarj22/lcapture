@@ -5,3 +5,10 @@ obj/
 *.suo
 artifacts/
 installer/Output/
+
+# Code signing: never commit certificates, keys or signing configuration.
+*.pfx
+*.p12
+*.cer
+*.snk
+metadata.json

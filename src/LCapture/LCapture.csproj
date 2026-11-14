@@ -28,4 +28,9 @@
     <Resource Include="Shaders\Sharpen.ps" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- MIT notices of NAudio and the .NET runtime must ship with the app. -->
+    <None Include="..\..\THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
