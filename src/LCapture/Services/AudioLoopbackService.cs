@@ -36,6 +36,16 @@ public sealed class AudioLoopbackService : IDisposable
     private static readonly string[] CaptureCardNameHints =
         ["fifine", "ampligame", "capture", "hdmi", "elgato", "avermedia", "cam link"];
 
+    private const int OutputLatencyMs = 40;
+    private static readonly TimeSpan MaxBufferedLatency = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan TargetBufferedLatency = TimeSpan.FromMilliseconds(40);
+
+    private static int BytesFor(WaveFormat format, TimeSpan duration)
+    {
+        int bytes = (int)(format.AverageBytesPerSecond * duration.TotalSeconds);
+        return bytes - bytes % format.BlockAlign;
+    }
+
     public static IReadOnlyList<MMDevice> GetInputDevices()
     {
         using var enumerator = new MMDeviceEnumerator();
@@ -80,7 +90,20 @@ public sealed class AudioLoopbackService : IDisposable
             BufferDuration = TimeSpan.FromMilliseconds(500),
         };
 
-        capture.DataAvailable += (_, e) => buffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+        var format = capture.WaveFormat;
+        int maxBytes = BytesFor(format, MaxBufferedLatency);
+        int targetBytes = BytesFor(format, TargetBufferedLatency);
+        var scratch = new byte[format.AverageBytesPerSecond];
+
+        capture.DataAvailable += (_, e) =>
+        {
+            buffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
+
+            // The capture card and the speakers run on separate clocks, so the buffer slowly
+            // fills up and the sound lags behind the picture. Drop the excess once it grows.
+            if (buffer.BufferedBytes > maxBytes)
+                buffer.Read(scratch, 0, Math.Min(buffer.BufferedBytes - targetBytes, scratch.Length));
+        };
         capture.RecordingStopped += (_, e) =>
         {
             if (e.Exception is not null)
@@ -94,7 +117,7 @@ public sealed class AudioLoopbackService : IDisposable
 
         // Shared-mode WASAPI render: the Windows audio engine resamples/converts as needed,
         // so the capture device's native format does not need to match the output device's.
-        var output = new WasapiOut(AudioClientShareMode.Shared, 100);
+        var output = new WasapiOut(AudioClientShareMode.Shared, useEventSync: true, OutputLatencyMs);
 
         try
         {

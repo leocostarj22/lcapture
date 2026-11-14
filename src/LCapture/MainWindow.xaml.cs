@@ -2,6 +2,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LCapture.Effects;
@@ -11,6 +13,7 @@ using LCapture.Services;
 using NAudio.CoreAudioApi;
 using Windows.Devices.Enumeration;
 using Windows.Graphics.Imaging;
+using Windows.Media.Devices;
 using WinRT;
 
 namespace LCapture;
@@ -45,6 +48,12 @@ public partial class MainWindow : Window
     private string? _currentDeviceId;
     private string? _currentDeviceName;
 
+    private readonly DispatcherTimer _deviceChangeTimer;
+    private DeviceWatcher? _deviceWatcher;
+    private volatile bool _deviceWatcherReady;
+    // Set when the streaming source is unplugged; capture restarts when it reappears.
+    private string? _reconnectDeviceId;
+
     private bool _isFullscreen;
     private WindowState _prevState;
     private WindowStyle _prevStyle;
@@ -74,6 +83,9 @@ public partial class MainWindow : Window
             _settings.Save();
         };
 
+        _deviceChangeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _deviceChangeTimer.Tick += DeviceChangeTimer_Tick;
+
         Loaded += MainWindow_Loaded;
     }
 
@@ -90,11 +102,58 @@ public partial class MainWindow : Window
         SharpenStrengthSlider.Value = strength;
         _sharpen.Strength = strength;
         SharpenValueText.Text = FormatPercent(strength);
-        SharpenButton.IsChecked = _settings.SharpenEnabled;
+
+        // Tier 2 = full GPU acceleration. Below that (Remote Desktop, VMs, basic display driver)
+        // WPF runs pixel shaders on the CPU, which would make the sharpen filter very slow.
+        bool gpuEffects = RenderCapability.Tier >> 16 >= 2;
+        if (gpuEffects)
+            SharpenButton.IsChecked = _settings.SharpenEnabled;
         ApplySharpen();
+        if (!gpuEffects)
+        {
+            SharpenButton.IsEnabled = false;
+            ToolTipService.SetShowOnDisabled(SharpenButton, true);
+            SharpenButton.ToolTip = "Nitidez indisponível: o Windows está a desenhar sem aceleração da placa de " +
+                                    "vídeo (Área de Trabalho Remota, máquina virtual ou driver genérico).";
+        }
 
         if (DevicesCombo.SelectedItem is DeviceInformation device)
             await StartCaptureAsync(device);
+
+        StartDeviceWatcher();
+    }
+
+    // ---- Hot-plug: refresh the lists and reconnect when the capture card comes back ----
+
+    private void StartDeviceWatcher()
+    {
+        var watcher = DeviceInformation.CreateWatcher(MediaDevice.GetVideoCaptureSelector());
+        // Added fires once per existing device before EnumerationCompleted; those are not changes.
+        watcher.EnumerationCompleted += (_, _) => _deviceWatcherReady = true;
+        watcher.Added += (_, _) => { if (_deviceWatcherReady) OnDevicesChanged(); };
+        watcher.Removed += (_, _) => OnDevicesChanged();
+        watcher.Updated += (_, _) => { }; // Required for Removed to be raised.
+        watcher.Start();
+        _deviceWatcher = watcher;
+    }
+
+    // Plugging in a card raises several events in a burst; refresh once it settles.
+    private void OnDevicesChanged() => Dispatcher.BeginInvoke(() =>
+    {
+        _deviceChangeTimer.Stop();
+        _deviceChangeTimer.Start();
+    });
+
+    private async void DeviceChangeTimer_Tick(object? sender, EventArgs e)
+    {
+        _deviceChangeTimer.Stop();
+        await RefreshDevicesAsync();
+
+        if (!_isStreaming && _reconnectDeviceId is not null &&
+            DevicesCombo.SelectedItem is DeviceInformation device && device.Id == _reconnectDeviceId)
+        {
+            await StartCaptureAsync(device);
+        }
     }
 
     private async Task LoadDevicesAsync()
@@ -102,6 +161,7 @@ public partial class MainWindow : Window
         if (!_isStreaming)
             SetStatus("Procurando fontes de vídeo...");
         var previouslySelectedId = _currentDeviceId
+                                   ?? _reconnectDeviceId
                                    ?? (DevicesCombo.SelectedItem as DeviceInformation)?.Id
                                    ?? _settings.DeviceId;
 
@@ -134,8 +194,16 @@ public partial class MainWindow : Window
         {
             if (devices.Any(d => d.Id == _currentDeviceId))
                 return; // Still connected: keep streaming and keep the current status.
+
+            _reconnectDeviceId = _currentDeviceId;
             await StopCaptureAsync();
+            SetStatus("A fonte de vídeo foi desligada. A captura recomeça sozinha quando voltar a ser ligada.",
+                      StatusLevel.Error);
+            return;
         }
+
+        if (_reconnectDeviceId is not null && devices.All(d => d.Id != _reconnectDeviceId))
+            return; // Still waiting for the unplugged source; keep that message.
 
         if (devices.Count == 0)
             SetStatus("Nenhuma fonte de vídeo encontrada. Conecte a placa de captura e clique em Atualizar.");
@@ -190,6 +258,7 @@ public partial class MainWindow : Window
         var device = DevicesCombo.SelectedItem as DeviceInformation;
         if (_isStreaming && device?.Id == _currentDeviceId) return;
 
+        _reconnectDeviceId = null; // The user picked something else; stop waiting for the old source.
         if (_isStreaming)
             await StopCaptureAsync();
 
@@ -248,6 +317,7 @@ public partial class MainWindow : Window
 
             _currentDeviceId = device.Id;
             _currentDeviceName = device.Name;
+            _reconnectDeviceId = null;
             _isStreaming = true;
             StartStopButton.Content = "Parar";
             StartStopButton.Style = (Style)FindResource("DangerButtonStyle");
@@ -273,7 +343,8 @@ public partial class MainWindow : Window
     }
 
     private double ScreenHeightInPixels() =>
-        SystemParameters.PrimaryScreenHeight * System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
+        MonitorInfo.GetHeightInPixels(new WindowInteropHelper(this).Handle)
+        ?? SystemParameters.PrimaryScreenHeight * System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
 
     private async Task StopCaptureAsync()
     {
@@ -363,6 +434,8 @@ public partial class MainWindow : Window
 
     private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        if (!IsLoaded) return; // Raised while the XAML is still being built.
+
         if (MuteButton.IsChecked != true)
             _audio.Volume = (float)e.NewValue;
 
@@ -441,7 +514,9 @@ public partial class MainWindow : Window
 
         if (_previewBitmap is null || _previewBitmap.PixelWidth != width || _previewBitmap.PixelHeight != height)
         {
-            _previewBitmap = new WriteableBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
+            // Bgr32: same memory layout as Bgra8 but WPF ignores the alpha byte, which capture
+            // pipelines do not always set to opaque.
+            _previewBitmap = new WriteableBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgr32, null);
             PreviewImage.Source = _previewBitmap;
         }
 
@@ -549,22 +624,40 @@ public partial class MainWindow : Window
     private void CollapseButton_Click(object sender, RoutedEventArgs e)
     {
         _toolbarCollapsed = !_toolbarCollapsed;
-        Toolbar.Visibility = _toolbarCollapsed ? Visibility.Collapsed : Visibility.Visible;
         CollapseIcon.Text = _toolbarCollapsed ? ExpandGlyph : CollapseGlyph;
         CollapseButton.ToolTip = _toolbarCollapsed
             ? "Mostrar barra (ou passe o mouse no topo)"
             : "Ocultar barra";
+        UpdateToolbarLayout();
+    }
+
+    /// <summary>In fullscreen or when collapsed, the toolbar hides and floats over the video on hover.</summary>
+    private bool ToolbarAutoHides => _toolbarCollapsed || _isFullscreen;
+
+    /// <summary>
+    /// Docked toolbar: the video sits below it, so nothing of the picture is covered. Auto-hide:
+    /// the video fills the window and the toolbar appears on top of it only while hovered.
+    /// </summary>
+    private void UpdateToolbarLayout()
+    {
+        bool overlay = ToolbarAutoHides;
+        Grid.SetRow(PreviewArea, overlay ? 0 : 1);
+        Grid.SetRowSpan(PreviewArea, overlay ? 2 : 1);
+        Toolbar.Visibility = overlay ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void ToolbarHoverZone_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (_toolbarCollapsed)
+        if (ToolbarAutoHides)
             Toolbar.Visibility = Visibility.Visible;
     }
 
     private void Toolbar_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (_toolbarCollapsed)
+        // An open drop-down lives in its own popup window, so the mouse "leaves" the toolbar.
+        bool dropDownOpen = DevicesCombo.IsDropDownOpen || FormatsCombo.IsDropDownOpen ||
+                            AudioDevicesCombo.IsDropDownOpen;
+        if (ToolbarAutoHides && !dropDownOpen)
             Toolbar.Visibility = Visibility.Collapsed;
     }
 
@@ -626,6 +719,7 @@ public partial class MainWindow : Window
         WindowState = WindowState.Maximized;
 
         _isFullscreen = true;
+        UpdateToolbarLayout();
         FullscreenIcon.Text = ExitFullscreenGlyph;
         FullscreenButton.ToolTip = "Sair da tela cheia (Esc)";
         _cursorIdleTimer.Start();
@@ -649,6 +743,7 @@ public partial class MainWindow : Window
         if (_prevState == WindowState.Maximized) WindowState = WindowState.Maximized;
 
         _isFullscreen = false;
+        UpdateToolbarLayout();
         FullscreenButtonResetIcon();
         FullscreenButton.ToolTip = "Tela cheia (F11)";
     }
@@ -660,6 +755,8 @@ public partial class MainWindow : Window
         if (_closeConfirmed) return;
         e.Cancel = true;
 
+        _deviceChangeTimer.Stop();
+        _deviceWatcher?.Stop();
         _audio.Dispose();
         await _capture.DisposeAsync();
         _closeConfirmed = true;

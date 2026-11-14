@@ -15,8 +15,14 @@
         PreviewMouseMove="Window_PreviewMouseMove"
         Closing="Window_Closing">
     <Grid>
-        <!-- Preview area: always fills the whole window; the toolbar floats on top of it -->
-        <Border Background="Black" x:Name="PreviewArea"
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Preview area: below the toolbar in a window; spans both rows (toolbar floating on
+             top) when the toolbar is collapsed or in fullscreen. See UpdateToolbarLayout. -->
+        <Border Grid.Row="1" Background="Black" x:Name="PreviewArea"
                 MouseLeftButtonDown="PreviewArea_MouseLeftButtonDown">
             <Grid>
                 <Image x:Name="PreviewImage" Stretch="Uniform" SnapsToDevicePixels="True"
@@ -29,11 +35,10 @@
         </Border>
 
         <!-- Invisible hot zone at the very top: hovering it reveals a collapsed toolbar -->
-        <Border x:Name="ToolbarHoverZone" Height="14" VerticalAlignment="Top" Background="Transparent"
+        <Border x:Name="ToolbarHoverZone" Grid.RowSpan="2" Height="14" VerticalAlignment="Top" Background="Transparent"
                 MouseEnter="ToolbarHoverZone_MouseEnter"/>
 
-        <!-- Toolbar, floating over the video -->
-        <Border x:Name="Toolbar" VerticalAlignment="Top" Background="{StaticResource SurfaceBrush}"
+        <Border x:Name="Toolbar" Grid.Row="0" VerticalAlignment="Top" Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="16,14"
                 MouseLeave="Toolbar_MouseLeave">
             <StackPanel>

@@ -69,7 +69,7 @@ public sealed class VideoCaptureService : IAsyncDisposable
             g.SourceInfos.Any(si => si.DeviceInformation?.Id == deviceId));
 
         if (group is null)
-            throw new InvalidOperationException("Não foi possível encontrar um grupo de captura para esta fonte de vídeo.");
+            throw new InvalidOperationException("NÃ£o foi possÃ­vel encontrar um grupo de captura para esta fonte de vÃ­deo.");
 
         var mediaCapture = new MediaCapture();
         try
@@ -94,7 +94,7 @@ public sealed class VideoCaptureService : IAsyncDisposable
         if (colorSource is null)
         {
             mediaCapture.Dispose();
-            throw new InvalidOperationException("Esta fonte não expõe um stream de vídeo colorido.");
+            throw new InvalidOperationException("Esta fonte nÃ£o expÃµe um stream de vÃ­deo colorido.");
         }
 
         _mediaCapture = mediaCapture;
@@ -125,12 +125,14 @@ public sealed class VideoCaptureService : IAsyncDisposable
     public async Task StartAsync(CaptureFormatOption format)
     {
         if (_mediaCapture is null || _colorSource is null)
-            throw new InvalidOperationException("Nenhuma fonte de vídeo aberta.");
+            throw new InvalidOperationException("Nenhuma fonte de vÃ­deo aberta.");
 
         await StopReaderAsync();
 
         await _colorSource.SetFormatAsync(format.RawFormat);
 
+        // Read in the card's native subtype. Asking Media Foundation for Bgra8 here instead was
+        // tried and delivered only black frames on the Fifine AmpliGame (YUY2).
         var reader = await _mediaCapture.CreateFrameReaderAsync(_colorSource, format.Subtype);
         reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
         reader.FrameArrived += OnReaderFrameArrived;
@@ -140,7 +142,7 @@ public sealed class VideoCaptureService : IAsyncDisposable
         {
             reader.FrameArrived -= OnReaderFrameArrived;
             reader.Dispose();
-            throw new InvalidOperationException($"Falha ao iniciar o stream de vídeo ({status}).");
+            throw new InvalidOperationException($"Falha ao iniciar o stream de vÃ­deo ({status}).");
         }
 
         _frameReader = reader;
@@ -177,18 +179,13 @@ public sealed class VideoCaptureService : IAsyncDisposable
         if (frame?.VideoMediaFrame?.SoftwareBitmap is not SoftwareBitmap original)
             return;
 
-        SoftwareBitmap converted;
-        if (original.BitmapPixelFormat == BitmapPixelFormat.Bgra8 &&
-            original.BitmapAlphaMode == BitmapAlphaMode.Premultiplied)
-        {
-            converted = SoftwareBitmap.Copy(original);
-        }
-        else
-        {
-            converted = SoftwareBitmap.Convert(original, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-        }
+        // The frame (and its bitmap) is released when this handler returns, so hand out a copy.
+        // The alpha channel is ignored by the preview, so any Bgra8 alpha mode is fine as-is.
+        var bitmap = original.BitmapPixelFormat == BitmapPixelFormat.Bgra8
+            ? SoftwareBitmap.Copy(original)
+            : SoftwareBitmap.Convert(original, BitmapPixelFormat.Bgra8);
 
-        FrameArrived?.Invoke(this, converted);
+        FrameArrived?.Invoke(this, bitmap);
     }
 
     private void OnMediaCaptureFailed(MediaCapture sender, MediaCaptureFailedEventArgs errorEventArgs)
