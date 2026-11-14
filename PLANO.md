@@ -25,3 +25,13 @@
 - [x] Reconexão automática quando a placa é desligada/ligada (DeviceWatcher)
 - [x] Desligar nitidez quando a renderização for por software (RDP/VM)
 - [x] Resolução padrão pelo monitor onde está a janela
+
+## Fase 4 — Microsoft Store (MSIX)
+- [ ] Criar conta em storedeveloper.microsoft.com e reservar o nome LCapture (autor)
+- [x] Logótipos da Store (`tools/make-store-assets.ps1` → `packaging/Assets`)
+- [x] Manifesto MSIX (`packaging/AppxManifest.template.xml`): runFullTrust, câmera, microfone
+- [x] `tools/package-msix.ps1`: gera o .msix (e `-TestSign` para testar localmente)
+- [ ] Instalar o pacote de teste e correr o Windows App Certification Kit (precisa de admin)
+- [ ] Preencher a identidade real do Partner Center no pacote
+- [ ] Política de privacidade (URL público), descrição e capturas de ecrã neutras
+- [ ] Submeter para certificação

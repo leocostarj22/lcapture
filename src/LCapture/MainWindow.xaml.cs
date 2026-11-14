@@ -345,7 +345,8 @@ public partial class MainWindow : Window
         catch (UnauthorizedAccessException)
         {
             SetStatus("Acesso negado à fonte de vídeo. Vá em Configurações do Windows > Privacidade e segurança > " +
-                      "Câmera, e habilite \"Permitir que aplicativos de área de trabalho acessem sua câmera\".", StatusLevel.Error);
+                      "Câmera e permita o acesso ao LCapture (ou \"Permitir que aplicativos de área de trabalho " +
+                      "acessem sua câmera\", se não o instalou pela Microsoft Store).", StatusLevel.Error);
         }
         catch (Exception ex)
         {
