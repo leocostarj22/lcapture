@@ -11,7 +11,7 @@ namespace LCapture.Services;
 /// <summary>
 /// Wraps Windows.Media.Capture to open a UVC video source (e.g. a capture card such as
 /// the Fifine AmpliGame V3), enumerate its native formats and stream frames as Bgra8
-/// SoftwareBitmaps. View-only: nothing is ever recorded or encoded to disk.
+/// SoftwareBitmaps, each stamped with its capture time for the recorder.
 /// </summary>
 public sealed class VideoCaptureService : IAsyncDisposable
 {
@@ -199,18 +199,23 @@ public sealed class VideoCaptureService : IAsyncDisposable
             return;
         }
 
+        // SystemRelativeTime is on the QPC timeline, like the audio packets. Fall back to "now"
+        // if a driver reports something implausible, so audio and video never drift apart.
+        var now = MediaClock.Now;
+        var timestamp = frame.SystemRelativeTime is TimeSpan t && (now - t).Duration() < TimeSpan.FromSeconds(2) ? t : now;
+
         if (bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8)
         {
             // No copy: the capture buffer stays alive until the UI has drawn it and disposes it.
             // The preview ignores alpha, so any Bgra8 alpha mode is fine as-is.
-            handler(this, new CapturedFrame(bitmap, frame));
+            handler(this, new CapturedFrame(bitmap, frame, timestamp));
             return;
         }
 
         var converted = SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8);
         bitmap.Dispose();
         frame.Dispose();
-        handler(this, new CapturedFrame(converted, owner: null));
+        handler(this, new CapturedFrame(converted, owner: null, timestamp));
     }
 
     private void OnMediaCaptureFailed(MediaCapture sender, MediaCaptureFailedEventArgs errorEventArgs)

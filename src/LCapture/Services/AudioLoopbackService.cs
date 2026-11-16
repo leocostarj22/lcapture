@@ -8,8 +8,8 @@ namespace LCapture.Services;
 
 /// <summary>
 /// Captures audio from a WASAPI input device (e.g. the audio side of an HDMI capture card)
-/// and plays it back live through the default output device. Pure passthrough: nothing is
-/// recorded to disk.
+/// and plays it back live through the default output device. While recording, each captured
+/// packet is also handed to <see cref="DataCaptured"/>.
 /// </summary>
 public sealed class AudioLoopbackService : IDisposable
 {
@@ -20,6 +20,22 @@ public sealed class AudioLoopbackService : IDisposable
     public event EventHandler<string>? ErrorOccurred;
 
     public bool IsRunning => _capture is not null;
+
+    private readonly AudioLevel _level = new();
+
+    /// <summary>Peak of the latest packets before the volume, 0..1, for the level meter.</summary>
+    public float Peak => _level.TakePeak();
+
+    /// <summary>Format of the packets raised by <see cref="DataCaptured"/>; null when stopped.</summary>
+    public WaveFormat? CaptureFormat => _capture?.WaveFormat;
+
+    /// <summary>
+    /// Raised on the capture thread for every packet, with its arrival time on the
+    /// <see cref="MediaClock"/> timeline. The buffer is reused afterwards: copy what you keep.
+    /// </summary>
+    public event AudioDataHandler? DataCaptured;
+
+    public delegate void AudioDataHandler(byte[] buffer, int count, TimeSpan arrival);
 
     public float Volume
     {
@@ -97,6 +113,8 @@ public sealed class AudioLoopbackService : IDisposable
 
         capture.DataAvailable += (_, e) =>
         {
+            _level.Measure(e.Buffer, e.BytesRecorded, format);
+            DataCaptured?.Invoke(e.Buffer, e.BytesRecorded, MediaClock.Now);
             buffer.AddSamples(e.Buffer, 0, e.BytesRecorded);
 
             // The capture card and the speakers run on separate clocks, so the buffer slowly

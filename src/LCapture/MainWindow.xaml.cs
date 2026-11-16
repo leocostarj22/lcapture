@@ -1,4 +1,6 @@
 ﻿using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -33,6 +35,16 @@ public partial class MainWindow : Window
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly DispatcherTimer _cursorIdleTimer;
     private readonly DispatcherTimer _saveTimer;
+    private readonly DispatcherTimer _recordTimer;
+
+    // Read on the capture threads (video and audio), written on the UI thread.
+    private RecordingService? _recorder;
+    private MixerInput? _cardInput;
+    private MixerInput? _windowInput;
+    private readonly DispatcherTimer _layerTimer;
+    private CaptureFormatOption? _currentFormat;
+    private bool _suppressRecordingOptionEvent;
+    private int _recordTicks;
 
     private WriteableBitmap? _previewBitmap;
     private readonly object _pendingLock = new();
@@ -64,9 +76,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        _capture.FrameArrived += OnFrameArrived;
+        // The version in the title tells this build apart from an older installed copy.
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        Title = $"LCapture {version?.Major}.{version?.Minor}.{version?.Build} — Captura de Vídeo";
+
+        _capture.FrameArrived += (_, frame) => OnSourceFrame(DeviceKey, frame);
         _capture.ErrorOccurred += OnCaptureError;
         _audio.ErrorOccurred += OnAudioError;
+        _audio.DataCaptured += (buffer, count, _) => Volatile.Read(ref _cardInput)?.Write(buffer, count);
         PreviewImage.SizeChanged += (_, _) => UpdateSharpenTexelSize();
 
         _cursorIdleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
@@ -83,6 +100,12 @@ public partial class MainWindow : Window
             _settings.Save();
         };
 
+        _recordTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _recordTimer.Tick += RecordTimer_Tick;
+
+        _layerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(0.5) };
+        _layerTimer.Tick += (_, _) => CheckWindowState();
+
         _deviceChangeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
         _deviceChangeTimer.Tick += DeviceChangeTimer_Tick;
 
@@ -90,6 +113,19 @@ public partial class MainWindow : Window
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Falha ao abrir a janela", ex);
+            SetStatus($"Erro ao iniciar: {ex.Message}", StatusLevel.Error);
+        }
+    }
+
+    private async Task LoadAsync()
     {
         await LoadDevicesAsync();
         await LoadAudioDevicesAsync(keepCurrent: false);
@@ -116,6 +152,14 @@ public partial class MainWindow : Window
             SharpenButton.ToolTip = "Nitidez indisponível: o Windows está a desenhar sem aceleração da placa de " +
                                     "vídeo (Área de Trabalho Remota, máquina virtual ou driver genérico).";
         }
+
+        Log.Info("A preparar camadas, áudio e gravação");
+        InitLayers();
+        InitAudioPanel();
+        InitRecordingOptions();
+        UpdateToolbarLayout();
+        _layerTimer.Start();
+        Log.Info($"Pronto; fonte escolhida: {SelectedVideoDevice?.Name ?? "nenhuma"}");
 
         if (SelectedVideoDevice is DeviceInformation device)
             await StartCaptureAsync(device);
@@ -147,6 +191,7 @@ public partial class MainWindow : Window
     private async void DeviceChangeTimer_Tick(object? sender, EventArgs e)
     {
         _deviceChangeTimer.Stop();
+        Log.Info("Dispositivos de vídeo mudaram; a atualizar a lista");
         await RefreshDevicesAsync();
 
         if (!_isStreaming && _reconnectDeviceId is not null &&
@@ -171,7 +216,7 @@ public partial class MainWindow : Window
 
     private async Task LoadDevicesAsync()
     {
-        if (!_isStreaming)
+        if (!_isStreaming && _statusLevel != StatusLevel.Error)
             SetStatus("Procurando fontes de vídeo...");
         var previouslySelectedId = _currentDeviceId
                                    ?? _reconnectDeviceId
@@ -211,9 +256,9 @@ public partial class MainWindow : Window
                 return; // Still connected: keep streaming and keep the current status.
 
             _reconnectDeviceId = _currentDeviceId;
-            await StopCaptureAsync();
-            SetStatus("A fonte de vídeo foi desligada. A captura recomeça sozinha quando voltar a ser ligada.",
-                      StatusLevel.Error);
+            var saved = await StopCaptureAsync();
+            SetStatus("A fonte de vídeo foi desligada. A captura recomeça sozinha quando voltar a ser ligada." +
+                      (saved is null ? "" : $" {saved}"), StatusLevel.Error);
             return;
         }
 
@@ -222,7 +267,7 @@ public partial class MainWindow : Window
 
         if (devices.Count == 0)
             SetStatus("Nenhuma fonte de vídeo encontrada. Conecte a placa de captura e clique em Atualizar.");
-        else
+        else if (_statusLevel != StatusLevel.Error || StatusText.Text.StartsWith("Procurando"))
             SetStatus($"{devices.Count} fonte(s) de vídeo encontrada(s). Selecione uma e clique em Iniciar.");
     }
 
@@ -232,6 +277,11 @@ public partial class MainWindow : Window
     {
         await LoadDevicesAsync();
         await LoadAudioDevicesAsync(keepCurrent: true);
+        LoadMicDevices();
+
+        var present = (DevicesCombo.ItemsSource as IEnumerable<VideoSourceItem>)?.Select(d => d.Device.Id).ToHashSet()
+                      ?? [];
+        await ReconcileCamerasAsync(present);
     }
 
     /// <summary>
@@ -274,17 +324,29 @@ public partial class MainWindow : Window
         if (_isStreaming && device?.Id == _currentDeviceId) return;
 
         _reconnectDeviceId = null; // The user picked something else; stop waiting for the old source.
+        if (device?.Id is string id)
+            await ReleaseCameraForDeviceAsync(id); // It cannot be opened twice.
         if (_isStreaming)
             await StopCaptureAsync();
 
         FormatsCombo.ItemsSource = null;
         await LoadAudioDevicesAsync(keepCurrent: false);
+        UpdateLayerControls();
     }
 
     private async void StartStopButton_Click(object sender, RoutedEventArgs e)
     {
         if (_isStreaming)
         {
+            // Easy to mistake for "stop recording": ask before ending a recording this way.
+            if (IsRecording && MainLayer == LayerSource.Device &&
+                MessageBox.Show(this,
+                    "Está a gravar. Desligar a fonte de vídeo também termina a gravação.\n\n" +
+                    "Para parar só a gravação, use o botão vermelho ■ (ou F9).\n\nDesligar a fonte mesmo assim?",
+                    "LCapture", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
+            {
+                return;
+            }
             await StopCaptureAsync();
             return;
         }
@@ -297,12 +359,17 @@ public partial class MainWindow : Window
 
     private async Task StartCaptureAsync(DeviceInformation device)
     {
+        // A device can only be opened once: if it is the overlay's webcam, take it off the corner.
+        await ReleaseCameraForDeviceAsync(device.Id);
+
         StartStopButton.IsEnabled = false;
         SetStatus($"Conectando a {device.Name}...");
 
         try
         {
+            Log.Info($"A abrir {device.Name} ({device.Id})");
             var allFormats = await _capture.OpenDeviceAsync(device.Id);
+            Log.Info($"{allFormats.Count} formatos anunciados");
             if (allFormats.Count == 0)
             {
                 SetStatus("Esta fonte não anunciou nenhum formato de vídeo suportado.");
@@ -328,15 +395,24 @@ public partial class MainWindow : Window
             FormatsCombo.SelectedItem = chosen;
             _suppressFormatEvent = false;
 
+            Log.Info($"A iniciar o formato {chosen} ({chosen.Subtype})");
             await _capture.StartAsync(chosen);
+            Log.Info("Leitor de quadros a funcionar");
 
+            _currentFormat = chosen;
+            UpdateRecordingOptions();
             _currentDeviceId = device.Id;
             _currentDeviceName = device.Name;
             _reconnectDeviceId = null;
             _isStreaming = true;
-            StartStopButton.Content = "Parar";
-            StartStopButton.Style = (Style)FindResource("DangerButtonStyle");
-            NoSignalText.Visibility = Visibility.Collapsed;
+            // Neutral, not red: the only red button stops the recording, not the source.
+            StartStopText.Text = "Desligar";
+            StartStopButton.ToolTip = "Desligar a fonte de vídeo (termina também uma gravação)";
+            StartStopButton.Style = (Style)FindResource(typeof(Button));
+            UpdateRecordUi();
+            UpdateLayerControls();
+            if (MainLayer == LayerSource.Device)
+                NoSignalText.Visibility = Visibility.Collapsed;
             SetStatus($"Exibindo: {device.Name} — {chosen}", StatusLevel.Success);
             SaveSettings(device.Id, chosen);
 
@@ -348,8 +424,18 @@ public partial class MainWindow : Window
                       "Câmera e permita o acesso ao LCapture (ou \"Permitir que aplicativos de área de trabalho " +
                       "acessem sua câmera\", se não o instalou pela Microsoft Store).", StatusLevel.Error);
         }
+        catch (Exception ex) when (ex.HResult == unchecked((int)0x80070490) && Environment.ProcessPath?.StartsWith(@"\\") == true)
+        {
+            // Seen when running from \\wsl.localhost\...: Windows' camera privacy does not handle
+            // apps on network paths and the device then looks "not found".
+            Log.Error("Erro ao iniciar a captura (caminho de rede)", ex);
+            SetStatus("Erro ao abrir a placa: o LCapture está a correr de uma pasta de rede " +
+                      $"({System.IO.Path.GetDirectoryName(Environment.ProcessPath)}), e o Windows não deixa usar " +
+                      "a câmera assim. Copie-o para uma pasta do PC e abra-o de lá.", StatusLevel.Error);
+        }
         catch (Exception ex)
         {
+            Log.Error("Erro ao iniciar a captura", ex);
             SetStatus($"Erro ao iniciar a captura: {ex.Message}", StatusLevel.Error);
         }
         finally
@@ -362,9 +448,12 @@ public partial class MainWindow : Window
         MonitorInfo.GetHeightInPixels(new WindowInteropHelper(this).Handle)
         ?? SystemParameters.PrimaryScreenHeight * System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
 
-    private async Task StopCaptureAsync()
+    /// <summary>Stops the toolbar's video source. Returns the recording's status line if it ended one.</summary>
+    private async Task<string?> StopCaptureAsync()
     {
         StartStopButton.IsEnabled = false;
+        // The recording follows the main picture; it only ends if this source was it.
+        var saved = MainLayer == LayerSource.Device ? await StopRecordingAsync() : null;
         try
         {
             await _capture.CloseAsync();
@@ -372,16 +461,35 @@ public partial class MainWindow : Window
         finally
         {
             _audio.Stop();
+            DetachCardAudio();
             _isStreaming = false;
             _currentDeviceId = null;
-            StartStopButton.Content = "Iniciar";
+            _currentFormat = null;
+            UpdateRecordingOptions();
+            UpdateRecordUi();
+            StartStopText.Text = "Iniciar";
+            StartStopButton.ToolTip = "Ligar a fonte de vídeo";
             StartStopButton.Style = (Style)FindResource("AccentButtonStyle");
             StartStopButton.IsEnabled = true;
-            NoSignalText.Visibility = Visibility.Visible;
-            PreviewImage.Source = null;
-            _previewBitmap = null;
-            SetStatus("Captura parada.");
+            if (MainLayer == LayerSource.Device)
+                ClearPreview();
+            ClearDeviceLayerContent();
+            SetStatus(saved is null ? "Captura parada." : $"Captura parada. {saved}");
         }
+
+        return saved;
+    }
+
+    private void ClearPreview()
+    {
+        lock (_pendingLock)
+        {
+            _pendingFrame?.Dispose();
+            _pendingFrame = null;
+        }
+        NoSignalText.Visibility = Visibility.Visible;
+        PreviewImage.Source = null;
+        _previewBitmap = null;
     }
 
     private void StartAudio()
@@ -396,6 +504,7 @@ public partial class MainWindow : Window
         {
             var muted = MuteButton.IsChecked == true;
             _audio.Start(device, muted ? 0f : (float)VolumeSlider.Value);
+            AttachCardAudio();
             SaveAudioSettings(device.ID);
         }
         catch (Exception ex)
@@ -417,11 +526,16 @@ public partial class MainWindow : Window
         if (_suppressFormatEvent || !_isStreaming) return;
         if (FormatsCombo.SelectedItem is not CaptureFormatOption format) return;
 
+        // A recording has a fixed size and frame rate; it ends before the source changes format.
+        var saved = MainLayer == LayerSource.Device ? await StopRecordingAsync() : null;
         SetStatus("Ajustando qualidade...");
         try
         {
             await _capture.StartAsync(format);
-            SetStatus($"Exibindo: {_currentDeviceName} — {format}", StatusLevel.Success);
+            _currentFormat = format;
+            UpdateRecordingOptions();
+            SetStatus($"Exibindo: {_currentDeviceName} — {format}" + (saved is null ? "" : $" · {saved}"),
+                      StatusLevel.Success);
             if (SelectedVideoDevice is DeviceInformation device)
                 SaveSettings(device.Id, format);
         }
@@ -434,6 +548,8 @@ public partial class MainWindow : Window
     private void AudioDevicesCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_suppressAudioEvent || !_isStreaming) return;
+
+        // A recording keeps going: the new device joins its audio mix (see AttachCardAudio).
         StartAudio();
     }
 
@@ -441,6 +557,7 @@ public partial class MainWindow : Window
     {
         bool muted = MuteButton.IsChecked == true;
         _audio.Volume = muted ? 0f : (float)VolumeSlider.Value;
+        UpdateCardGain();
         UpdateMuteIcon();
         _settings.AudioMuted = muted;
         _settings.Save();
@@ -454,6 +571,8 @@ public partial class MainWindow : Window
 
         if (MuteButton.IsChecked != true)
             _audio.Volume = (float)e.NewValue;
+        UpdateCardGain();
+        UpdateVolumeTexts();
 
         // Debounced so dragging the slider does not rewrite the settings file continuously.
         _settings.AudioVolume = (float)e.NewValue;
@@ -484,8 +603,23 @@ public partial class MainWindow : Window
 
     // ---- Frame rendering (background thread -> UI thread, dropping stale frames) ----
 
-    private void OnFrameArrived(object? sender, CapturedFrame frame)
+    /// <summary>A frame of the main layer (capture thread): add the overlay, record, then show.</summary>
+    private void OnMainFrame(CapturedFrame source)
     {
+        CapturedFrame frame;
+        try
+        {
+            frame = _compositor.Compose(source);
+        }
+        catch
+        {
+            source.Dispose();
+            return;
+        }
+
+        // The recorder copies the pixels now, before the preview takes ownership of the frame.
+        Volatile.Read(ref _recorder)?.AddFrame(frame);
+
         CapturedFrame? previous;
         bool needsSchedule;
         lock (_pendingLock)
@@ -514,6 +648,7 @@ public partial class MainWindow : Window
 
         try
         {
+            NoSignalText.Visibility = Visibility.Collapsed;
             UpdateWriteableBitmap(frame.Bitmap);
         }
         finally
@@ -534,6 +669,7 @@ public partial class MainWindow : Window
             // pipelines do not always set to opaque.
             _previewBitmap = new WriteableBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Bgr32, null);
             PreviewImage.Source = _previewBitmap;
+            Dispatcher.BeginInvoke(UpdateSelectionAdorner, DispatcherPriority.Loaded);
         }
 
         using var buffer = bitmap.LockBuffer(BitmapBufferAccessMode.Read);
@@ -579,9 +715,14 @@ public partial class MainWindow : Window
 
     private enum StatusLevel { Idle, Success, Error }
 
+    private StatusLevel _statusLevel;
+
     private void SetStatus(string text, StatusLevel level = StatusLevel.Idle)
     {
+        if (level == StatusLevel.Error) Log.Error(text);
+        else Log.Info(text);
         StatusText.Text = text;
+        _statusLevel = level;
         StatusDot.Fill = level switch
         {
             StatusLevel.Success => (System.Windows.Media.Brush)FindResource("SuccessBrush"),
@@ -589,6 +730,366 @@ public partial class MainWindow : Window
             _ => (System.Windows.Media.Brush)FindResource("TextSecondaryBrush"),
         };
     }
+
+    // ---- Recording ----
+
+    private const long MinFreeBytesToStart = 2L * 1024 * 1024 * 1024;
+    private const long MinFreeBytesWhileRecording = 500L * 1024 * 1024;
+
+    private sealed record ResolutionItem(int Height, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record FpsItem(bool Fps30, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record QualityItem(RecordingQuality Quality, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private bool IsRecording => _recorder is not null;
+
+    private string RecordingFolder => string.IsNullOrWhiteSpace(_settings.RecordingFolder)
+        ? AppSettings.DefaultRecordingFolder
+        : _settings.RecordingFolder;
+
+    private RecordingChoice CurrentRecordingChoice => new(
+        (RecResolutionCombo.SelectedItem as ResolutionItem)?.Height ?? 0,
+        (RecFpsCombo.SelectedItem as FpsItem)?.Fps30 ?? false,
+        (RecQualityCombo.SelectedItem as QualityItem)?.Quality ?? RecordingQuality.High);
+
+    private void InitRecordingOptions()
+    {
+        _suppressRecordingOptionEvent = true;
+        var qualities = new List<QualityItem>
+        {
+            new(RecordingQuality.High, "Alta"),
+            new(RecordingQuality.Medium, "Média"),
+            new(RecordingQuality.Low, "Baixa (ficheiros mais pequenos)"),
+        };
+        RecQualityCombo.ItemsSource = qualities;
+        RecQualityCombo.SelectedItem = qualities.FirstOrDefault(q => q.Quality == _settings.RecordingQuality) ?? qualities[0];
+        _suppressRecordingOptionEvent = false;
+
+        UpdateRecordingOptions();
+        UpdateRecordUi();
+    }
+
+    /// <summary>Rebuilds the resolution/fps lists for the current source and refreshes the estimate.</summary>
+    private void UpdateRecordingOptions()
+    {
+        _suppressRecordingOptionEvent = true;
+        var source = MainFormat;
+
+        var resolutions = new List<ResolutionItem>
+        {
+            new(0, source is null ? "Igual à fonte" : $"Igual à fonte ({source.Width}×{source.Height})"),
+        };
+        foreach (int height in RecordingProfile.PresetHeights)
+        {
+            if (source is not null && height >= source.Height) continue;
+            var label = $"{height}p";
+            if (source is not null)
+            {
+                var (w, h) = RecordingProfile.OutputSize(source.Width, source.Height, height);
+                label += $" ({w}×{h})";
+            }
+            resolutions.Add(new ResolutionItem(height, label));
+        }
+        RecResolutionCombo.ItemsSource = resolutions;
+        RecResolutionCombo.SelectedItem = resolutions.FirstOrDefault(r => r.Height == _settings.RecordingHeight)
+                                          ?? resolutions[0];
+
+        var rates = new List<FpsItem>
+        {
+            new(false, source is null ? "Igual à fonte" : $"Igual à fonte ({source.Fps:0.##} fps)"),
+            new(true, "30 fps (ficheiros mais pequenos)"),
+        };
+        RecFpsCombo.ItemsSource = rates;
+        RecFpsCombo.SelectedItem = rates[_settings.RecordingFps30 ? 1 : 0];
+
+        _suppressRecordingOptionEvent = false;
+        UpdateRecordingEstimate();
+    }
+
+    private void UpdateRecordingEstimate()
+    {
+        RecFolderText.Text = RecordingFolder;
+        RecFolderText.ToolTip = RecordingFolder;
+
+        if (MainFormat is not VideoFormatInfo source)
+        {
+            RecEstimateText.Text = "Inicie a captura para ver o tamanho estimado.";
+            return;
+        }
+
+        var profile = RecordingProfile.Resolve(source, CurrentRecordingChoice);
+        RecEstimateText.Text = $"{profile.Width}×{profile.Height} a {profile.Fps:0.##} fps · " +
+                               $"{profile.VideoBitrate / 1e6:0.#} Mbps · cerca de {profile.GigabytesPerHour:0.#} GB por hora";
+    }
+
+    private void RecordingOption_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressRecordingOptionEvent || !IsLoaded) return;
+
+        var choice = CurrentRecordingChoice;
+        _settings.RecordingHeight = choice.TargetHeight;
+        _settings.RecordingFps30 = choice.Fps30;
+        _settings.RecordingQuality = choice.Quality;
+        _settings.Save();
+        UpdateRecordingEstimate();
+    }
+
+    private void RecordSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateRecordingOptions();
+        RecordSettingsPopup.IsOpen = !RecordSettingsPopup.IsOpen;
+    }
+
+    private void ChangeFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        RecordSettingsPopup.IsOpen = false;
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Pasta para as gravações",
+            InitialDirectory = Directory.Exists(RecordingFolder) ? RecordingFolder : "",
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        _settings.RecordingFolder = dialog.FolderName;
+        _settings.Save();
+        UpdateRecordingEstimate();
+    }
+
+    private void OpenFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        RecordSettingsPopup.IsOpen = false;
+        try
+        {
+            Directory.CreateDirectory(RecordingFolder);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{RecordingFolder}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Não foi possível abrir a pasta: {ex.Message}", StatusLevel.Error);
+        }
+    }
+
+    private async void RecordButton_Click(object sender, RoutedEventArgs e) => await ToggleRecordingAsync();
+
+    private async Task ToggleRecordingAsync()
+    {
+        if (!RecordButton.IsEnabled) return; // Not streaming, or busy starting/finishing a file.
+
+        if (IsRecording)
+        {
+            var saved = await StopRecordingAsync();
+            if (saved is not null) SetStatus(saved, StatusLevel.Success);
+            return;
+        }
+
+        if (!MainActive || MainFormat is not VideoFormatInfo source)
+        {
+            SetStatus(MainLayer == LayerSource.Window
+                ? "A janela ainda não enviou imagem. Mexa na janela ou espere um instante e tente de novo."
+                : "Inicie a captura antes de gravar.");
+            return;
+        }
+
+        var folder = RecordingFolder;
+        var free = FreeBytes(folder);
+        if (free is < MinFreeBytesToStart)
+        {
+            SetStatus($"Pouco espaço livre no disco da pasta de gravações ({free / 1e9:0.#} GB). " +
+                      "Liberte espaço ou escolha outra pasta nas definições da gravação.", StatusLevel.Error);
+            return;
+        }
+
+        var profile = RecordingProfile.Resolve(source, CurrentRecordingChoice);
+        var path = Path.Combine(folder, $"LCapture {DateTime.Now:yyyy-MM-dd HH-mm-ss}.mp4");
+
+        RecordButton.IsEnabled = false;
+        RecordSettingsPopup.IsOpen = false;
+        try
+        {
+            var recorder = await RecordingService.StartAsync(path, source, profile);
+            recorder.Failed += (_, message) => Dispatcher.BeginInvoke(async () =>
+            {
+                if (_recorder != recorder) return;
+                await StopRecordingAsync();
+                SetStatus($"A gravação parou: {message}", StatusLevel.Error);
+            });
+            // Every frame from now on has the recording's size, whatever the layers do.
+            _compositor.LockedCanvas = ((int)source.Width, (int)source.Height);
+            Volatile.Write(ref _recorder, recorder);
+            AttachCardAudio();
+            UpdateMicState();
+            await UpdateWindowAudioAsync();
+            ReplayWindowFrame(); // A still window main picture: the recording starts with it.
+            _recordTicks = 0;
+            _recordTimer.Start();
+
+            var notes = new List<string>();
+            if (_cardInput is null && _windowInput is null && _micInput is null)
+                notes.Add("sem som (escolha a fonte de áudio no painel Áudio)");
+            else if (_micInput is not null)
+                notes.Add("com microfone");
+            if (MediaFoundationInterop.HasHardwareH264Encoder() == false)
+                notes.Add("sem codificador de hardware: a gravação usa o processador e pode perder quadros");
+            else if (source.Height >= 2160 && source.Fps > 31 && _compositor.HasLayers)
+                notes.Add("4K60 com sobreposição é pesado; se perder quadros, grave em 1080p");
+
+            SetStatus($"A gravar {Path.GetFileName(path)} — {profile.Width}×{profile.Height}, {profile.Fps:0.##} fps" +
+                      string.Concat(notes.Select(n => " · " + n)), StatusLevel.Success);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            SetStatus($"Sem permissão para gravar em {folder}. Escolha outra pasta nas definições da gravação.",
+                      StatusLevel.Error);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Não foi possível começar a gravar: {ex.Message}", StatusLevel.Error);
+        }
+        finally
+        {
+            UpdateRecordUi();
+        }
+    }
+
+    /// <summary>Finishes the file. Returns a status line describing it, or null if nothing was recording.</summary>
+    private async Task<string?> StopRecordingAsync()
+    {
+        var recorder = _recorder;
+        if (recorder is null) return null;
+
+        Volatile.Write(ref _recorder, null);
+        _recordTimer.Stop();
+        var duration = recorder.Elapsed;
+        DetachCardAudio();
+        DetachMicAudio();
+        UpdateMicState(); // Closes the microphone unless the audio panel still shows its meter.
+        await UpdateWindowAudioAsync(); // Stops listening to the window's app.
+        _compositor.LockedCanvas = null;
+
+        RecordButton.IsEnabled = false;
+        RecordText.Text = "A guardar…";
+        try
+        {
+            await recorder.StopAsync();
+            var message = $"Gravação guardada: {Path.GetFileName(recorder.FilePath)} ({FormatDuration(duration)}).";
+            if (recorder.FramesDropped > 0)
+                message += $" {recorder.FramesDropped} quadros perdidos: o PC não acompanhou a codificação " +
+                           "(experimente uma resolução ou taxa de quadros mais baixa).";
+            return message;
+        }
+        catch (Exception ex)
+        {
+            return $"Erro ao terminar a gravação ({Path.GetFileName(recorder.FilePath)}): {ex.Message}";
+        }
+        finally
+        {
+            UpdateRecordUi();
+        }
+    }
+
+    private void RecordTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_recorder is not RecordingService recorder) return;
+
+        RecordText.Text = FormatDuration(recorder.Elapsed);
+
+        // Every ~15 s: stop cleanly before the disk fills up, which would leave a broken file.
+        if (++_recordTicks % 30 == 0 && FreeBytes(RecordingFolder) is < MinFreeBytesWhileRecording)
+            _ = StopForLowDiskAsync();
+    }
+
+    private async Task StopForLowDiskAsync()
+    {
+        var saved = await StopRecordingAsync();
+        SetStatus($"Disco quase cheio: a gravação foi terminada. {saved}", StatusLevel.Error);
+    }
+
+    private void UpdateRecordUi()
+    {
+        bool recording = IsRecording;
+        RecordButton.IsEnabled = recording || MainActive;
+        RecordButton.Style = recording ? (Style)FindResource("DangerButtonStyle") : (Style)FindResource(typeof(Button));
+        RecordButton.ToolTip = recording ? "Parar a gravação (F9)" : "Gravar (F9)";
+        // Red dot = "record"; white square = "stop recording".
+        RecordDot.Background = recording
+            ? (System.Windows.Media.Brush)FindResource("TextPrimaryBrush")
+            : (System.Windows.Media.Brush)FindResource("DangerBrush");
+        RecordDot.CornerRadius = new CornerRadius(recording ? 2 : 5);
+        if (!recording) RecordText.Text = "Gravar";
+
+        RecResolutionCombo.IsEnabled = !recording;
+        RecFpsCombo.IsEnabled = !recording;
+        RecQualityCombo.IsEnabled = !recording;
+        ChangeFolderButton.IsEnabled = !recording;
+    }
+
+    // ---- Recording audio: each source is one input of the recording's mixer ----
+
+    private void AttachCardAudio()
+    {
+        DetachCardAudio();
+        if (_recorder is not RecordingService recorder || _audio.CaptureFormat is not { } format) return;
+
+        var input = recorder.AddAudioInput(format);
+        if (input is not null)
+            input.Gain = MuteButton.IsChecked == true ? 0f : (float)VolumeSlider.Value;
+        Volatile.Write(ref _cardInput, input);
+    }
+
+    private void DetachCardAudio()
+    {
+        var input = Interlocked.Exchange(ref _cardInput, null);
+        _recorder?.RemoveAudioInput(input);
+    }
+
+    /// <summary>The recording hears the card at the volume you hear it (muted = silent).</summary>
+    private void UpdateCardGain()
+    {
+        if (_cardInput is MixerInput input)
+            input.Gain = MuteButton.IsChecked == true ? 0f : (float)VolumeSlider.Value;
+    }
+
+    private void AttachWindowAudio()
+    {
+        DetachWindowAudio();
+        if (_recorder is not RecordingService recorder) return;
+
+        var input = recorder.AddAudioInput(ProcessAudioCapture.CaptureFormat);
+        if (input is not null) input.Gain = WindowAudioGain;
+        Volatile.Write(ref _windowInput, input);
+    }
+
+    private void DetachWindowAudio()
+    {
+        var input = Interlocked.Exchange(ref _windowInput, null);
+        _recorder?.RemoveAudioInput(input);
+    }
+
+    private static long? FreeBytes(string folder)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(folder));
+            return string.IsNullOrEmpty(root) ? null : new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch
+        {
+            return null; // Network paths and the like: don't block recording on a failed check.
+        }
+    }
+
+    private static string FormatDuration(TimeSpan time) =>
+        time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss") : time.ToString(@"mm\:ss");
 
     // ---- Fullscreen ----
 
@@ -642,8 +1143,8 @@ public partial class MainWindow : Window
         _toolbarCollapsed = !_toolbarCollapsed;
         CollapseIcon.Text = _toolbarCollapsed ? ExpandGlyph : CollapseGlyph;
         CollapseButton.ToolTip = _toolbarCollapsed
-            ? "Mostrar barra (ou passe o mouse no topo)"
-            : "Ocultar barra";
+            ? "Mostrar as barras (ou passe o rato no topo)"
+            : "Ocultar barras";
         UpdateToolbarLayout();
     }
 
@@ -658,8 +1159,13 @@ public partial class MainWindow : Window
     {
         bool overlay = ToolbarAutoHides;
         Grid.SetRow(PreviewArea, overlay ? 0 : 1);
-        Grid.SetRowSpan(PreviewArea, overlay ? 2 : 1);
+        Grid.SetRowSpan(PreviewArea, overlay ? 3 : 1);
+        Grid.SetColumnSpan(PreviewArea, overlay ? 2 : 1);
         Toolbar.Visibility = overlay ? Visibility.Collapsed : Visibility.Visible;
+        StatusBar.Visibility = overlay ? Visibility.Collapsed : Visibility.Visible;
+        AudioPanel.Visibility = !overlay && AudioPanelButton.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        UpdateMicState(); // The microphone is open only while its meter is visible or it is being recorded.
+        UpdateSelectionAdorner();
     }
 
     private void ToolbarHoverZone_MouseEnter(object sender, MouseEventArgs e)
@@ -672,14 +1178,10 @@ public partial class MainWindow : Window
     {
         // An open drop-down lives in its own popup window, so the mouse "leaves" the toolbar.
         bool dropDownOpen = DevicesCombo.IsDropDownOpen || FormatsCombo.IsDropDownOpen ||
-                            AudioDevicesCombo.IsDropDownOpen;
+                            AudioDevicesCombo.IsDropDownOpen || RecordSettingsPopup.IsOpen ||
+                            LayersPopup.IsOpen;
         if (ToolbarAutoHides && !dropDownOpen)
             Toolbar.Visibility = Visibility.Collapsed;
-    }
-
-    private void PreviewArea_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2) ToggleFullscreen();
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -690,8 +1192,15 @@ public partial class MainWindow : Window
                 ToggleFullscreen();
                 e.Handled = true;
                 break;
+            case Key.Delete or Key.Escape when HandleLayerKey(e.Key):
+                e.Handled = true;
+                break;
             case Key.Escape when _isFullscreen:
                 ExitFullscreen();
+                e.Handled = true;
+                break;
+            case Key.F9:
+                _ = ToggleRecordingAsync();
                 e.Handled = true;
                 break;
             case Key.F5 when !_isFullscreen:
@@ -773,6 +1282,17 @@ public partial class MainWindow : Window
 
         _deviceChangeTimer.Stop();
         _deviceWatcher?.Stop();
+        _layerTimer.Stop();
+        if (_saveTimer.IsEnabled)
+        {
+            // A layer change debounces the save by 400ms; closing right after one must not lose it.
+            _saveTimer.Stop();
+            _settings.Save();
+        }
+        await StopRecordingAsync(); // Closing mid-recording must still leave a playable file.
+        _meterTimer?.Stop();
+        _mic.Dispose();
+        await StopLayersAsync();
         _audio.Dispose();
         await _capture.DisposeAsync();
         _closeConfirmed = true;

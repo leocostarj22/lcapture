@@ -18,12 +18,18 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- Preview area: below the toolbar in a window; spans both rows (toolbar floating on
-             top) when the toolbar is collapsed or in fullscreen. See UpdateToolbarLayout. -->
+        <!-- Preview area: between the toolbar and the status bar, left of the audio panel. When the
+             toolbar is collapsed or in fullscreen it fills the window. See UpdateToolbarLayout. -->
         <Border Grid.Row="1" Background="Black" x:Name="PreviewArea"
-                MouseLeftButtonDown="PreviewArea_MouseLeftButtonDown">
+                MouseLeftButtonDown="PreviewArea_MouseLeftButtonDown" MouseMove="PreviewArea_MouseMove"
+                MouseLeftButtonUp="PreviewArea_MouseLeftButtonUp" MouseRightButtonUp="PreviewArea_MouseRightButtonUp">
             <Grid>
                 <Image x:Name="PreviewImage" Stretch="Uniform" SnapsToDevicePixels="True"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
@@ -31,81 +37,430 @@
                 <TextBlock x:Name="NoSignalText" Text="Sem sinal"
                            Foreground="#FF3A3A3F" FontSize="26" FontWeight="Light"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                <!-- Layer editor: selection frame and resize handles. Drawn only on screen, never recorded. -->
+                <Canvas x:Name="EditorCanvas" IsHitTestVisible="False">
+                    <Border x:Name="SelectionBox" BorderBrush="{StaticResource AccentBrush}" BorderThickness="2"
+                            Visibility="Collapsed"/>
+                    <Rectangle x:Name="HandleTL" Style="{StaticResource HandleStyle}"/>
+                    <Rectangle x:Name="HandleTR" Style="{StaticResource HandleStyle}"/>
+                    <Rectangle x:Name="HandleBL" Style="{StaticResource HandleStyle}"/>
+                    <Rectangle x:Name="HandleBR" Style="{StaticResource HandleStyle}"/>
+                </Canvas>
+            </Grid>
+        </Border>
+
+        <!-- ===== Audio side panel ===== -->
+        <Border x:Name="AudioPanel" Grid.Row="1" Grid.Column="1" Width="300"
+                Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderSubtleBrush}"
+                BorderThickness="1,0,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="16,14,16,16">
+                    <Grid>
+                        <TextBlock Text="Áudio" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <Button Style="{StaticResource IconButtonStyle}" Width="30" Height="30" HorizontalAlignment="Right"
+                                ToolTip="Fechar o painel de áudio" Click="CloseAudioPanel_Click">
+                            <TextBlock Text="&#xE711;" FontSize="12" FontFamily="{StaticResource IconFont}"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Button>
+                    </Grid>
+
+                    <!-- Capture card -->
+                    <Border Style="{StaticResource CardStyle}" Margin="0,14,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                                <TextBlock Text="Placa de captura" Margin="8,0,0,0" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                            <ComboBox x:Name="AudioDevicesCombo" Margin="0,10,0,0" DisplayMemberPath="FriendlyName"
+                                      ToolTip="Fonte de áudio da placa" SelectionChanged="AudioDevicesCombo_SelectionChanged"/>
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="44"/>
+                                </Grid.ColumnDefinitions>
+                                <ToggleButton x:Name="MuteButton" Style="{StaticResource IconToggleButtonStyle}"
+                                              ToolTip="Mudo" Click="MuteButton_Click">
+                                    <TextBlock x:Name="MuteIcon" Text="&#xE767;" FontFamily="{StaticResource IconFont}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </ToggleButton>
+                                <Slider x:Name="VolumeSlider" Grid.Column="1" Margin="10,0,0,0" Minimum="0" Maximum="1" Value="1"
+                                        VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"/>
+                                <TextBlock x:Name="VolumeText" Grid.Column="2" Text="100%" TextAlignment="Right"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border Style="{StaticResource MeterTrackStyle}" Margin="0,10,0,0">
+                                <Rectangle x:Name="CardMeter" Style="{StaticResource MeterFillStyle}"/>
+                            </Border>
+                            <TextBlock Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
+                                       Text="Toca nas colunas e entra na gravação com este volume."/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Microphone -->
+                    <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE720;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                                <TextBlock Text="Microfone" Margin="8,0,0,0" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                            <ComboBox x:Name="MicDevicesCombo" Margin="0,10,0,0" ToolTip="Microfone"
+                                      SelectionChanged="MicDevicesCombo_SelectionChanged"/>
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="44"/>
+                                </Grid.ColumnDefinitions>
+                                <ToggleButton x:Name="MicMuteButton" Style="{StaticResource IconToggleButtonStyle}"
+                                              ToolTip="Silenciar o microfone" Click="MicMuteButton_Click">
+                                    <TextBlock x:Name="MicMuteIcon" Text="&#xE720;" FontFamily="{StaticResource IconFont}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </ToggleButton>
+                                <Slider x:Name="MicVolumeSlider" Grid.Column="1" Margin="10,0,0,0" Minimum="0" Maximum="1" Value="1"
+                                        VerticalAlignment="Center" ValueChanged="MicVolumeSlider_ValueChanged"
+                                        ToolTip="Volume do microfone na gravação"/>
+                                <TextBlock x:Name="MicVolumeText" Grid.Column="2" Text="100%" TextAlignment="Right"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border Style="{StaticResource MeterTrackStyle}" Margin="0,10,0,0">
+                                <Rectangle x:Name="MicMeter" Style="{StaticResource MeterFillStyle}"/>
+                            </Border>
+                            <CheckBox x:Name="MicRecordCheck" Margin="0,10,0,0" Content="Gravar o microfone"
+                                      Foreground="{StaticResource TextPrimaryBrush}" Click="MicRecordCheck_Click"/>
+                            <TextBlock Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
+                                       Text="Não toca nas colunas (evita eco): só entra na gravação. Só fica ligado com este painel aberto ou durante uma gravação."/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Window/screen app sound -->
+                    <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE7F4;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"
+                                           Foreground="{StaticResource AccentBrush}"/>
+                                <TextBlock Text="Som da janela" Margin="8,0,0,0" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="44"/>
+                                </Grid.ColumnDefinitions>
+                                <ToggleButton x:Name="WindowAudioMuteButton" Style="{StaticResource IconToggleButtonStyle}"
+                                              ToolTip="Silenciar o som da janela" Click="WindowAudioMuteButton_Click">
+                                    <TextBlock x:Name="WindowAudioMuteIcon" Text="&#xE767;" FontFamily="{StaticResource IconFont}"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                </ToggleButton>
+                                <Slider x:Name="WindowAudioVolumeSlider" Grid.Column="1" Margin="10,0,0,0" Minimum="0" Maximum="1" Value="1"
+                                        VerticalAlignment="Center" ValueChanged="WindowAudioVolumeSlider_ValueChanged"
+                                        ToolTip="Volume do som da janela/ecrã na gravação"/>
+                                <TextBlock x:Name="WindowAudioVolumeText" Grid.Column="2" Text="100%" TextAlignment="Right"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <TextBlock Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
+                                       Text="Ativa-se em &quot;Gravar o som da janela&quot;, nas Camadas. Só entra na gravação."/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <!-- ===== Status bar ===== -->
+        <Border x:Name="StatusBar" Grid.Row="2" Grid.ColumnSpan="2" Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="16,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="{StaticResource TextSecondaryBrush}"
+                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="StatusText" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                               Text="Selecione uma fonte de vídeo e clique em Iniciar."/>
+                </StackPanel>
+
+                <StackPanel x:Name="SharpenStrengthPanel" Grid.Column="1" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="False" Opacity="0.4"
+                            ToolTip="Intensidade da nitidez">
+                    <TextBlock Text="Nitidez" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <Slider x:Name="SharpenStrengthSlider" Width="120" Minimum="0" Maximum="1" Value="0.6"
+                            VerticalAlignment="Center" ValueChanged="SharpenStrengthSlider_ValueChanged"/>
+                    <TextBlock x:Name="SharpenValueText" Text="60%" Width="36" TextAlignment="Right"
+                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </StackPanel>
             </Grid>
         </Border>
 
         <!-- Invisible hot zone at the very top: hovering it reveals a collapsed toolbar -->
-        <Border x:Name="ToolbarHoverZone" Grid.RowSpan="2" Height="14" VerticalAlignment="Top" Background="Transparent"
-                MouseEnter="ToolbarHoverZone_MouseEnter"/>
+        <Border x:Name="ToolbarHoverZone" Grid.RowSpan="3" Grid.ColumnSpan="2" Height="14" VerticalAlignment="Top"
+                Background="Transparent" MouseEnter="ToolbarHoverZone_MouseEnter"/>
 
-        <Border x:Name="Toolbar" Grid.Row="0" VerticalAlignment="Top" Background="{StaticResource SurfaceBrush}"
-                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="16,14"
-                MouseLeave="Toolbar_MouseLeave">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <ComboBox x:Name="DevicesCombo" Width="180" DisplayMemberPath="Name" ToolTip="Fonte de vídeo"
+        <!-- ===== Toolbar ===== -->
+        <Border x:Name="Toolbar" Grid.Row="0" Grid.ColumnSpan="2" VerticalAlignment="Top"
+                Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderSubtleBrush}"
+                BorderThickness="0,0,0,1" Padding="12,10" MouseLeave="Toolbar_MouseLeave">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Sources. Wraps on narrow windows instead of pushing the buttons out of sight. -->
+                <WrapPanel VerticalAlignment="Center">
+                    <ComboBox x:Name="DevicesCombo" Width="190" DisplayMemberPath="Name" ToolTip="Fonte de vídeo"
                               SelectionChanged="DevicesCombo_SelectionChanged"/>
+                    <ComboBox x:Name="FormatsCombo" Width="210" Margin="8,0,0,0" ToolTip="Qualidade"
+                              SelectionChanged="FormatsCombo_SelectionChanged"/>
                     <Button x:Name="RefreshButton" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0"
-                            ToolTip="Atualizar dispositivos" Click="RefreshButton_Click">
+                            ToolTip="Atualizar dispositivos (F5)" Click="RefreshButton_Click">
                         <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
                     </Button>
+                </WrapPanel>
 
-                    <ComboBox x:Name="FormatsCombo" Width="240" Margin="16,0,0,0" ToolTip="Qualidade"
-                              SelectionChanged="FormatsCombo_SelectionChanged"/>
+                <!-- Actions -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <Button x:Name="StartStopButton" Style="{StaticResource AccentButtonStyle}"
+                            Padding="18,7" ToolTip="Ligar a fonte de vídeo" Click="StartStopButton_Click">
+                        <!-- Explicit colour: the theme's grey TextBlock style would otherwise apply. -->
+                        <TextBlock x:Name="StartStopText" Text="Iniciar" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Button>
+                    <Button x:Name="RecordButton" Margin="8,0,0,0" Padding="14,7" IsEnabled="False"
+                            ToolTip="Gravar (F9)" Click="RecordButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Border x:Name="RecordDot" Width="10" Height="10" CornerRadius="5"
+                                    Background="{StaticResource DangerBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="RecordText" Text="Gravar" Margin="8,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="RecordSettingsButton" Style="{StaticResource IconButtonStyle}" Margin="4,0,0,0"
+                            ToolTip="Definições da gravação (resolução, qualidade, pasta)" Click="RecordSettingsButton_Click">
+                        <TextBlock Text="&#xE713;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Button>
+                        <Popup x:Name="RecordSettingsPopup" PlacementTarget="{Binding ElementName=RecordSettingsButton}"
+                               Placement="Bottom" StaysOpen="False" AllowsTransparency="True" VerticalOffset="6"
+                               PopupAnimation="Fade">
+                            <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource HighlightBrush}"
+                                    BorderThickness="1" CornerRadius="8" Padding="16" Width="300">
+                                <StackPanel x:Name="RecordSettingsPanel">
+                                    <TextBlock Text="Gravação" FontSize="15" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
 
-                    <Border Width="1" Background="{StaticResource BorderSubtleBrush}" Margin="16,4" />
+                                    <TextBlock Text="Resolução" Margin="0,14,0,6"/>
+                                    <ComboBox x:Name="RecResolutionCombo" SelectionChanged="RecordingOption_Changed"/>
 
-                    <ComboBox x:Name="AudioDevicesCombo" Width="180" DisplayMemberPath="FriendlyName" ToolTip="Fonte de áudio"
-                              SelectionChanged="AudioDevicesCombo_SelectionChanged"/>
-                    <ToggleButton x:Name="MuteButton" Style="{StaticResource IconToggleButtonStyle}" Margin="6,0,0,0"
-                                  ToolTip="Mudo" Click="MuteButton_Click">
-                        <TextBlock x:Name="MuteIcon" Text="&#xE767;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="Taxa de quadros" Margin="0,12,0,6"/>
+                                    <ComboBox x:Name="RecFpsCombo" SelectionChanged="RecordingOption_Changed"/>
+
+                                    <TextBlock Text="Qualidade" Margin="0,12,0,6"/>
+                                    <ComboBox x:Name="RecQualityCombo" SelectionChanged="RecordingOption_Changed"/>
+
+                                    <TextBlock x:Name="RecEstimateText" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" FontSize="12"
+                                               Text="Grava o que vê, com as camadas. O som (placa e microfone) ajusta-se no painel Áudio."/>
+
+                                    <TextBlock Text="Pasta" Margin="0,14,0,6"/>
+                                    <TextBlock x:Name="RecFolderText" TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <Button x:Name="ChangeFolderButton" Content="Alterar…" Click="ChangeFolderButton_Click"/>
+                                        <Button Content="Abrir pasta" Margin="8,0,0,0" Click="OpenFolderButton_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}"/>
+
+                    <Button x:Name="LayersButton" Padding="12,7"
+                            ToolTip="Camadas: webcam, janela ou ecrã no canto da imagem" Click="LayersButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE81E;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Camadas" Margin="8,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </StackPanel>
+                    </Button>
+                        <Popup x:Name="LayersPopup" PlacementTarget="{Binding ElementName=LayersButton}"
+                           Placement="Bottom" StaysOpen="False" AllowsTransparency="True" VerticalOffset="6"
+                           PopupAnimation="Fade">
+                        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource HighlightBrush}"
+                                BorderThickness="1" CornerRadius="10" Width="372">
+                            <ScrollViewer MaxHeight="640" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="16">
+                                    <Grid>
+                                        <TextBlock Text="Camadas" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <ToggleButton x:Name="LockLayersButton" HorizontalAlignment="Right"
+                                                      Style="{StaticResource AccentToggleButtonStyle}" Padding="10,5"
+                                                      ToolTip="Bloquear posições: as camadas deixam de poder ser arrastadas na imagem"
+                                                      Click="LockLayersButton_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="LockLayersIcon" Text="&#xE785;" FontFamily="{StaticResource IconFont}"
+                                                           VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                <TextBlock Text="Bloquear" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                    </Grid>
+
+                                    <TextBlock Text="Imagem principal" Margin="0,14,0,6"/>
+                                    <ComboBox x:Name="MainLayerCombo" SelectionChanged="MainLayerCombo_SelectionChanged"/>
+
+                                    <TextBlock Text="Janela ou ecrã" Margin="0,12,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="WindowTargetCombo" SelectionChanged="WindowTargetCombo_SelectionChanged"/>
+                                        <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0"
+                                                ToolTip="Atualizar a lista de janelas" Click="RefreshWindowsButton_Click">
+                                            <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                    <CheckBox x:Name="WindowAudioCheck" Margin="0,10,0,0"
+                                              Content="Gravar o som da janela" Click="WindowAudioCheck_Click"/>
+
+                                    <TextBlock Text="Método de captura" Margin="0,12,0,6"/>
+                                    <ComboBox x:Name="CaptureMethodCombo" SelectionChanged="CaptureMethodCombo_SelectionChanged"/>
+                                    <TextBlock x:Name="WindowHintText" Margin="0,8,0,0" TextWrapping="Wrap" FontSize="12"
+                                               Text="Vídeos protegidos (Netflix, Disney+…) aparecem pretos. Se o vídeo (ex. YouTube) não aparecer na janela do browser capturada, escolha &quot;Ecrã inteiro&quot; acima com o browser maximizado e o método &quot;BitBlt&quot; — capturar só a janela nunca mostra esse vídeo, em nenhum método. Não minimize a janela capturada: a imagem fica parada."/>
+
+                                    <TextBlock Text="Sobreposições" Margin="0,16,0,6" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <ComboBox x:Name="AddLayerCombo" SelectionChanged="AddLayerCombo_SelectionChanged"
+                                              ToolTip="Adicionar uma webcam, uma imagem (logótipo, moldura) ou a janela"/>
+                                    <StackPanel x:Name="LayerListPanel" Margin="0,8,0,0"/>
+                                    <TextBlock x:Name="NoLayersText" Margin="0,4,0,0" FontSize="12" TextWrapping="Wrap"
+                                               Text="Ainda não há sobreposições. Adicione uma webcam, uma imagem ou a janela."/>
+
+                                    <!-- Settings of the selected layer -->
+                                    <Border x:Name="LayerDetailsPanel" Style="{StaticResource CardStyle}" Margin="0,10,0,0">
+                                        <StackPanel>
+                                            <TextBlock x:Name="LayerDetailsTitle" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <Grid Margin="0,10,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="44"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="Opacidade" VerticalAlignment="Center"/>
+                                                <Slider x:Name="LayerOpacitySlider" Grid.Column="1" Margin="10,0,0,0" Minimum="0.05" Maximum="1"
+                                                        Value="1" VerticalAlignment="Center" ValueChanged="LayerOpacitySlider_ValueChanged"/>
+                                                <TextBlock x:Name="LayerOpacityText" Grid.Column="2" Text="100%" TextAlignment="Right"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
+
+                                            <StackPanel x:Name="KeyPanel" Margin="0,10,0,0">
+                                                <TextBlock Text="Fundo a remover (o Windows perde a transparência do WebM)" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                                                <ComboBox x:Name="KeyCombo" SelectionChanged="KeyCombo_SelectionChanged">
+                                                    <ComboBoxItem Content="Nenhum"/>
+                                                    <ComboBoxItem Content="Preto"/>
+                                                    <ComboBoxItem Content="Branco"/>
+                                                </ComboBox>
+                                            </StackPanel>
+
+                                            <StackPanel x:Name="AttachPanel" Margin="0,10,0,0">
+                                                <TextBlock Text="Acompanhar (move-se e muda de tamanho com):" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <ComboBox x:Name="AttachCombo" SelectionChanged="AttachCombo_SelectionChanged"/>
+                                                    <Button x:Name="FitToTargetButton" Grid.Column="1" Margin="6,0,0,0" Padding="10,7"
+                                                            ToolTip="Encaixar esta imagem à volta da camada que acompanha (moldura)"
+                                                            Click="FitToTargetButton_Click">
+                                                        <TextBlock Text="Ajustar" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                    </Button>
+                                                </Grid>
+                                            </StackPanel>
+
+                                            <TextBlock Text="Posição rápida" Margin="0,10,0,6"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Style="{StaticResource IconButtonStyle}" Tag="TopLeft" ToolTip="Canto superior esquerdo" Click="QuickPosition_Click">
+                                                    <TextBlock Text="&#xE742;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                </Button>
+                                                <Button Style="{StaticResource IconButtonStyle}" Tag="TopRight" Margin="6,0,0,0" ToolTip="Canto superior direito" Click="QuickPosition_Click">
+                                                    <TextBlock Text="&#xE742;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}" RenderTransformOrigin="0.5,0.5">
+                                                        <TextBlock.RenderTransform><RotateTransform Angle="90"/></TextBlock.RenderTransform>
+                                                    </TextBlock>
+                                                </Button>
+                                                <Button Style="{StaticResource IconButtonStyle}" Tag="BottomLeft" Margin="6,0,0,0" ToolTip="Canto inferior esquerdo" Click="QuickPosition_Click">
+                                                    <TextBlock Text="&#xE742;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}" RenderTransformOrigin="0.5,0.5">
+                                                        <TextBlock.RenderTransform><RotateTransform Angle="-90"/></TextBlock.RenderTransform>
+                                                    </TextBlock>
+                                                </Button>
+                                                <Button Style="{StaticResource IconButtonStyle}" Tag="BottomRight" Margin="6,0,0,0" ToolTip="Canto inferior direito" Click="QuickPosition_Click">
+                                                    <TextBlock Text="&#xE742;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}" RenderTransformOrigin="0.5,0.5">
+                                                        <TextBlock.RenderTransform><RotateTransform Angle="180"/></TextBlock.RenderTransform>
+                                                    </TextBlock>
+                                                </Button>
+                                                <Button Style="{StaticResource IconButtonStyle}" Tag="Center" Margin="6,0,0,0" ToolTip="Ao centro" Click="QuickPosition_Click">
+                                                    <TextBlock Text="&#xE739;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                </Button>
+                                                <Button Style="{StaticResource IconButtonStyle}" Tag="Fill" Margin="6,0,0,0" ToolTip="Ocupar a imagem toda" Click="QuickPosition_Click">
+                                                    <TextBlock Text="&#xE740;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                </Button>
+                                            </StackPanel>
+
+                                            <Button x:Name="SwapLayersButton" Margin="0,12,0,0" HorizontalAlignment="Left"
+                                                    Click="SwapLayersButton_Click" ToolTip="Trocar esta camada com a imagem principal">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="&#xE8AB;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                    <TextBlock Text="Trocar com a imagem principal" Margin="8,0,0,0" VerticalAlignment="Center"
+                                                               Foreground="{StaticResource TextPrimaryBrush}"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock Margin="0,12,0,0" FontSize="12" TextWrapping="Wrap"
+                                               Text="Na imagem: clique numa camada e arraste para a mover; puxe um canto para mudar o tamanho (Shift: sem manter a forma). Delete apaga a camada selecionada."/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                    </Popup>
+                    <ToggleButton x:Name="AudioPanelButton" Style="{StaticResource AccentToggleButtonStyle}" Margin="8,0,0,0"
+                                  Padding="12,7" ToolTip="Mostrar ou esconder o painel de áudio (placa e microfone)"
+                                  Click="AudioPanelButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE767;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Áudio" Margin="8,0,0,0" VerticalAlignment="Center"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </StackPanel>
                     </ToggleButton>
-                    <Slider x:Name="VolumeSlider" Width="100" Margin="10,0,0,0" Minimum="0" Maximum="1" Value="1"
-                            VerticalAlignment="Center" ValueChanged="VolumeSlider_ValueChanged"/>
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,0,0">
-                        <Button x:Name="StartStopButton" Style="{StaticResource AccentButtonStyle}" Content="Iniciar"
-                                Padding="20,7" Click="StartStopButton_Click"/>
-                        <ToggleButton x:Name="SharpenButton" Style="{StaticResource AccentIconToggleButtonStyle}" Margin="8,0,0,0"
-                                      ToolTip="Nitidez por GPU (desligada)" Checked="SharpenButton_Changed" Unchecked="SharpenButton_Changed">
-                            <TextBlock Text="&#xE706;" FontSize="15" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </ToggleButton>
-                        <Button x:Name="FullscreenButton" Style="{StaticResource IconButtonStyle}" Margin="8,0,0,0"
-                                ToolTip="Tela cheia (F11)" Click="FullscreenButton_Click">
-                            <TextBlock x:Name="FullscreenIcon" Text="&#xE740;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </Button>
-                        <Button x:Name="CollapseButton" Style="{StaticResource IconButtonStyle}" Margin="8,0,0,0"
-                                ToolTip="Ocultar barra" Click="CollapseButton_Click">
-                            <TextBlock x:Name="CollapseIcon" Text="&#xE70E;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </Button>
-                    </StackPanel>
+                    <Border Style="{StaticResource ToolbarSeparatorStyle}"/>
+
+                    <ToggleButton x:Name="SharpenButton" Style="{StaticResource AccentIconToggleButtonStyle}"
+                                  ToolTip="Nitidez por GPU (desligada)" Checked="SharpenButton_Changed" Unchecked="SharpenButton_Changed">
+                        <TextBlock Text="&#xE706;" FontSize="15" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </ToggleButton>
+                    <Button x:Name="FullscreenButton" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0"
+                            ToolTip="Tela cheia (F11)" Click="FullscreenButton_Click">
+                        <TextBlock x:Name="FullscreenIcon" Text="&#xE740;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Button>
+                    <Button x:Name="CollapseButton" Style="{StaticResource IconButtonStyle}" Margin="6,0,0,0"
+                            ToolTip="Ocultar barras" Click="CollapseButton_Click">
+                        <TextBlock x:Name="CollapseIcon" Text="&#xE70E;" FontFamily="{StaticResource IconFont}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Button>
                 </StackPanel>
-
-                <Grid Margin="0,10,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0" Orientation="Horizontal">
-                        <Ellipse x:Name="StatusDot" Width="7" Height="7" Fill="{StaticResource TextSecondaryBrush}"
-                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock x:Name="StatusText" TextWrapping="Wrap" VerticalAlignment="Center"
-                                   Text="Selecione uma fonte de vídeo e clique em Iniciar."/>
-                    </StackPanel>
-
-                    <StackPanel x:Name="SharpenStrengthPanel" Grid.Column="1" Orientation="Horizontal"
-                                VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="False" Opacity="0.4"
-                                ToolTip="Intensidade da nitidez">
-                        <TextBlock Text="Nitidez" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <Slider x:Name="SharpenStrengthSlider" Width="120" Minimum="0" Maximum="1" Value="0.6"
-                                VerticalAlignment="Center" ValueChanged="SharpenStrengthSlider_ValueChanged"/>
-                        <TextBlock x:Name="SharpenValueText" Text="60%" Width="36" TextAlignment="Right"
-                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
-                    </StackPanel>
-                </Grid>
-            </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </Window>

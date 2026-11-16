@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <Compile Include="../../src/LCapture/Services/RecordingService.cs;../../src/LCapture/Services/AudioMixer.cs;../../src/LCapture/Services/MediaClock.cs;../../src/LCapture/Services/PixelOps.cs;../../src/LCapture/Services/CapturedFrame.cs;../../src/LCapture/Services/FrameCompositor.cs;../../src/LCapture/Interop/IBufferByteAccess.cs;../../src/LCapture/Interop/IMemoryBufferByteAccess.cs;../../src/LCapture/Interop/MediaFoundationInterop.cs;../../src/LCapture/Models/RecordingProfile.cs;../../src/LCapture/Models/VideoFormatInfo.cs;../../src/LCapture/Models/SceneLayer.cs;../../src/LCapture/Models/CaptureFormatOption.cs" />
+  </ItemGroup>
+</Project>

@@ -19,6 +19,32 @@ public sealed class AppSettings
     public bool SharpenEnabled { get; set; }
     public double SharpenStrength { get; set; } = 0.6;
 
+    /// <summary>Output height of recordings; 0 = same as the source.</summary>
+    public int RecordingHeight { get; set; }
+    public bool RecordingFps30 { get; set; }
+    public Models.RecordingQuality RecordingQuality { get; set; } = Models.RecordingQuality.High;
+    public string? RecordingFolder { get; set; }
+
+    /// <summary>Webcam and picture layers, bottom to top (windows are not kept: they change).</summary>
+    public List<Models.SceneLayer> Layers { get; set; } = [];
+    public bool LayersLocked { get; set; }
+
+    public static string PicturesFolder =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LCapture", "Imagens");
+    public bool RecordWindowAudio { get; set; } = true;
+    public float WindowAudioVolume { get; set; } = 1f;
+    public bool WindowAudioMuted { get; set; }
+    public Models.CaptureMethod CaptureMethod { get; set; } = Models.CaptureMethod.Automatic;
+
+    public string? MicDeviceId { get; set; }
+    public float MicVolume { get; set; } = 1f;
+    public bool MicMuted { get; set; }
+    public bool MicRecord { get; set; } = true;
+    public bool AudioPanelOpen { get; set; } = true;
+
+    public static string DefaultRecordingFolder =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "LCapture");
+
     private static string FilePath
     {
         get

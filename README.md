@@ -1,9 +1,10 @@
 # LCapture
 
-Visualizador de vídeo para Windows, feito para exibir — apenas para visualização, sem gravação —
-o sinal de uma fonte de captura de vídeo USB (UVC), como uma placa de captura Fifine AmpliGame V3
-ligada via HDMI. Usa a API nativa `Windows.Media.Capture` para obter os frames diretamente da placa
-com a maior qualidade/resolução nativa que ela anunciar, sem recompressão.
+Visualizador e gravador de vídeo para Windows, feito para mostrar com baixa latência o sinal de uma
+fonte de captura de vídeo USB (UVC), como uma placa de captura Fifine AmpliGame V3 ligada via HDMI.
+Usa a API nativa `Windows.Media.Capture` para obter os frames diretamente da placa com a maior
+qualidade/resolução nativa que ela anunciar, sem recompressão. Opcionalmente grava para MP4, com
+uma webcam ou uma janela (por exemplo, o browser) no canto da imagem.
 
 ## Instalar
 
@@ -24,7 +25,13 @@ dotnet build LCapture.sln -c Release
 dotnet run --project src/LCapture/LCapture.csproj -c Release
 ```
 
-O executável fica em `src/LCapture/bin/x64/Release/net10.0-windows10.0.19041.0/LCapture.exe`.
+O executável fica em `src/LCapture/bin/x64/Release/net10.0-windows10.0.22621.0/LCapture.exe`.
+
+Se o código estiver dentro do WSL, não abra o executável a partir de `\\wsl.localhost\...`: o
+Windows não deixa apps em pastas de rede usar a câmera (erro `0x80070490 — Elemento não
+encontrado`). Use `powershell -File tools\run-dev.ps1`, que compila, copia para
+`%LOCALAPPDATA%\LCaptureDev` e abre de lá. O registo de diagnóstico fica em
+`%LOCALAPPDATA%\LCapture\lcapture.log`.
 
 ## Gerar o instalador (para outros PCs)
 
@@ -64,6 +71,105 @@ noutros PCs, o instalador e o `LCapture.exe` precisam de assinatura digital (ver
    modo que cabe na sua tela com 50+ fps. (A Fifine testada anuncia no máximo 1080p60.)
    O shader fica em `src/LCapture/Shaders/Sharpen.hlsl`; para recompilar após editar:
    `powershell -File tools\compile-shader.ps1`.
+
+## Gravação (F9)
+
+- **Gravar** (ou **F9**) grava o que se vê — incluindo a sobreposição — para MP4 (H.264 + AAC), com
+  o codificador de hardware da placa de vídeo (NVENC, AMD AMF, Intel Quick Sync) quando existe.
+  Sem ele, a gravação usa o processador e o app avisa.
+- **⚙ Definições da gravação**: resolução (igual à fonte, 2160p, 1440p, 1080p, 720p — só até à da
+  fonte, mantendo a proporção), taxa de quadros (igual à fonte ou 30 fps), qualidade (Alta, Média,
+  Baixa) com o tamanho estimado por hora, e a pasta (por omissão `Vídeos\LCapture`).
+- O som gravado mistura o áudio da placa (com o volume e o mudo escolhidos: grava o que ouve), o
+  microfone (se escolhido) e, no Windows 11, o som da janela capturada. Trocar de áudio ou de
+  camadas não interrompe a gravação.
+
+## Painel Áudio
+
+O botão **Áudio** mostra/esconde o painel lateral, com um cartão por canal:
+
+- **Placa de captura**: fonte, mudo, volume e medidor de nível. Toca nas colunas e entra na gravação
+  com este volume.
+- **Microfone**: fonte (por omissão "Nenhum"), mudo, volume (0–100%), medidor e "Gravar o
+  microfone". Nunca toca nas colunas (evita eco); só entra na gravação. Só fica ligado com o painel
+  aberto (para o medidor) ou durante uma gravação.
+- A gravação termina sozinha (e o ficheiro fica bom) ao trocar a qualidade da fonte principal,
+  ao desligar a placa, ao fechar o app ou com menos de 500 MB livres no disco. É um MP4 normal:
+  se o PC desligar a meio da gravação, o ficheiro perde-se.
+
+## Camadas (webcam, imagens, janela, ecrã)
+
+O botão **Camadas** monta a cena:
+
+- **Imagem principal**: a fonte de vídeo da barra (a placa) ou uma **janela/ecrã** da lista
+  (janelas abertas e ecrãs inteiros).
+- **Sobreposições**, sem limite, em **＋ Adicionar camada…**:
+  - **Webcam** (pedida em ≤ 720p, de preferência MJPG, para poupar USB);
+  - **Imagem** (PNG com transparência, JPG, BMP, GIF): logótipo, moldura, marca de água. É copiada
+    para `%LOCALAPPDATA%\LCapture\Imagens`, por isso mover o original não estraga a cena. Uma
+    imagem com a forma da imagem principal (ex.: 1920×1080) começa a ocupá-la toda;
+  - **Vídeo animado** (WebM, MP4, MOV, MKV): em ciclo, sem som (molduras e logótipos animados).
+    O Windows perde a transparência dos WebM (as zonas transparentes vêm brancas), por isso há
+    **"Fundo a remover: Nenhum / Preto / Branco"** — os WebM começam em "Branco". Com "Branco",
+    o branco do próprio desenho (ex.: texto branco) também fica parcialmente transparente.
+    WebM precisa das "Extensões de Multimédia Web" e "Extensões de Vídeo VP9" (Microsoft Store);
+  - a **janela/ecrã** escolhida, ou a **fonte da barra** (quando a principal é uma janela).
+- **Na própria imagem**: clique numa camada para a selecionar, arraste para mover, puxe um canto
+  para mudar o tamanho (mantém a forma; **Shift** = livre). As margens e o centro atraem a camada.
+  **Delete** apaga a selecionada, **Esc** tira a seleção. A moldura azul de seleção não é gravada.
+- **Botão direito** numa camada: **Ajustar ao ecrã** (o maior tamanho que cabe, centrado, sem
+  deformar), **Esticar para ocupar tudo**, posição (cantos, centro), ordem, esconder e remover.
+- Por camada: mostrar/esconder (numa webcam, o olho liga/desliga a câmera), trazer para a frente /
+  enviar para trás, opacidade, posições rápidas (cantos, centro, ocupar tudo) e remover.
+- **Acompanhar**: uma camada pode seguir outra (move-se e muda de tamanho com ela). Para uma
+  moldura de webcam: adicione a imagem, em "Acompanhar" escolha a webcam e carregue em **Ajustar**.
+- **Trocar com a imagem principal** (numa camada de janela ou da fonte da barra): troca, por
+  exemplo, a consola e o browser, mantendo o lugar e o tamanho da camada.
+- **Bloquear** impede arrastar as camadas sem querer (por exemplo, a meio de um jogo).
+- A cena fica guardada: imagens e webcams voltam ao abrir a app, mas **as webcams voltam
+  desligadas** (ligam-se no olho). Janelas não são guardadas.
+- Som da janela: só a aplicação dessa janela (ou, num ecrã inteiro, tudo menos o LCapture), para
+  não duplicar o som da placa. Requer Windows 11 (build 20348+).
+- Limites do Windows: vídeo protegido (Netflix, Disney+…) aparece preto; uma janela minimizada fica
+  parada. No Windows 11 a borda amarela de captura é escondida quando o Windows o permite.
+
+## Painel Áudio
+
+O botão **Áudio** mostra/esconde o painel lateral, com um cartão por canal:
+
+- **Placa de captura**: fonte, mudo, volume e medidor de nível. Toca nas colunas e entra na gravação
+  com este volume.
+- **Microfone**: fonte (por omissão "Nenhum"), mudo, volume (0–100%), medidor e "Gravar o
+  microfone". Nunca toca nas colunas (evita eco); só entra na gravação. Só fica ligado com o painel
+  aberto (para o medidor) ou durante uma gravação.
+- A gravação termina sozinha (e o ficheiro fica bom) ao trocar a qualidade da fonte principal,
+  ao desligar a placa, ao fechar o app ou com menos de 500 MB livres no disco. É um MP4 normal:
+  se o PC desligar a meio da gravação, o ficheiro perde-se.
+
+## Camadas (webcam, janela, ecrã)
+
+O botão **Camadas** (ícone de folhas) junta duas imagens:
+
+- **Imagem principal**: a fonte de vídeo da barra (a placa) ou uma **janela/ecrã** da lista
+  (janelas abertas e ecrãs inteiros).
+- **Sobreposição no canto**: uma webcam (pedida em ≤ 720p, de preferência MJPG, para poupar USB),
+  a janela/ecrã ou a placa; com posição (4 cantos) e tamanho (pequena, média, grande).
+- **Trocar principal e sobreposição** troca, por exemplo, a consola e o browser com um clique.
+- Som da janela: só a aplicação dessa janela (ou, num ecrã inteiro, tudo menos o LCapture), para
+  não duplicar o som da placa. Requer Windows 11 (build 20348+). A app continua a tocar sozinha
+  nas colunas; o LCapture só o junta à gravação.
+- Limites do Windows: vídeo protegido (Netflix, Disney+…) aparece preto; uma janela minimizada fica
+  parada. No Windows 11 a borda amarela de captura é escondida quando o Windows o permite.
+
+## Teste do gravador (sem placa)
+
+```powershell
+dotnet run -c Release --project tests/RecordingSmokeTest -- 1920 1080 60
+```
+
+Grava 3 s de quadros sintéticos (vermelho em cima, azul em baixo, verde no canto) e um tom de
+440 Hz, e lê o MP4 de volta. Esperado: `top=red bottom=blue overlay=green`, `dropped=0`,
+`RMS≈0,212`, `~440 Hz`.
 
 ## Se o app fechar ao abrir ("Uma política de Controle de Aplicativos bloqueou este arquivo")
 
@@ -109,7 +215,17 @@ app mostrar "Acesso negado", vá em:
 - `MainWindow.xaml.cs`: converte cada frame (`SoftwareBitmap` Bgra8) para um `WriteableBitmap` da
   UI copiando o buffer de pixels diretamente (sem reamostrar), descartando frames antigos se a UI
   não conseguir acompanhar a taxa da placa — a tela sempre mostra o quadro mais recente disponível.
-- Nada é gravado, encodado ou enviado para disco/rede: é um visualizador puro.
+- `MainWindow.Layers.cs`: as camadas. Cada fonte (placa, `WindowCaptureSource`, webcam) envia os
+  seus quadros para `OnSourceFrame`, que os encaminha pelo papel atual (principal, sobreposição
+  ou nenhum) — trocar as camadas não reinicia nada.
+- `Services/FrameCompositor.cs`: cola a sobreposição no quadro principal (no processador; uma
+  sobreposição de ~500 px num quadro 1080p custa pouco) e, durante a gravação, mantém todos os
+  quadros no tamanho da gravação (letterbox se a fonte principal mudar de tamanho).
+- `Services/RecordingService.cs`: `MediaStreamSource` (Bgra8 + áudio float) → `MediaTranscoder` →
+  MP4. `Services/AudioMixer.cs` mistura as fontes de som num relógio próprio (QPC, 100 ms atrás do
+  tempo real), por isso a faixa nunca tem buracos.
+- `Services/ProcessAudioCapture.cs`: som de uma aplicação (WASAPI process loopback).
+- Nada é enviado para a rede; as gravações ficam só no PC.
 
 ## Licença
 

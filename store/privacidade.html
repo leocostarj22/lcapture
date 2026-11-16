@@ -22,23 +22,46 @@
 <body>
 <main>
   <h1>Política de Privacidade do LCapture</h1>
-  <p class="meta">Editor: Leo Costa Developer · Em vigor desde 14 de novembro de 2026</p>
-
-  <p>O LCapture é um visualizador de vídeo para Windows: mostra no ecrã, em tempo real, a imagem e o
-  som de uma placa de captura (por exemplo, uma consola ligada por HDMI). Esta política explica que
-  dados o app usa e o que faz com eles. Em resumo: <strong>o LCapture não grava, não guarda e não
-  envia a sua imagem nem o seu som para lado nenhum.</strong></p>
+  <p class="meta">Editor: Leo Costa Developer · Em vigor desde 16 de novembro de 2026 (versão 1.2)</p>
+  <p>O LCapture é um visualizador e gravador de vídeo para Windows: mostra no ecrã, em tempo real, a
+  imagem e o som de uma placa de captura (por exemplo, uma consola ligada por HDMI) e, se o pedir,
+  grava-os num ficheiro de vídeo no seu computador. Esta política explica que dados o app usa e o que
+  faz com eles. Em resumo: <strong>o LCapture só grava quando o utilizador manda, guarda as gravações
+  apenas no seu computador e nunca envia imagem, som ou outros dados para lado nenhum.</strong></p>
 
   <h2>Câmera e microfone</h2>
   <p>O Windows trata as placas de captura como câmeras e microfones. Por isso, o LCapture pede acesso
-  à câmera e ao microfone. Esse acesso serve apenas para mostrar e reproduzir, no próprio computador,
-  a fonte de vídeo e de áudio que escolher no app. Pode retirar a permissão a qualquer momento em
-  Definições do Windows &gt; Privacidade e segurança &gt; Câmera / Microfone.</p>
+  à câmera e ao microfone. Esse acesso serve para mostrar e reproduzir, no próprio computador, a fonte
+  de vídeo e de áudio que escolher no app e, quando carrega em Gravar, para as gravar. Pode retirar a
+  permissão a qualquer momento em Definições do Windows &gt; Privacidade e segurança &gt; Câmera /
+  Microfone.</p>
   <ul>
-    <li>A imagem e o som não são gravados nem guardados em disco.</li>
+    <li>Uma webcam só é usada se a escolher como sobreposição (imagem no canto). Não é ligada
+    sozinha quando abre o app.</li>
+    <li>Um microfone só é usado se o escolher no painel Áudio (por omissão: "Nenhum"). Fica ligado
+    apenas com esse painel aberto, para mostrar o nível, ou durante uma gravação. O som do
+    microfone não é reproduzido nas colunas; só entra nas gravações, se a opção "Gravar o
+    microfone" estiver ligada.</li>
     <li>A imagem e o som não são enviados pela internet nem partilhados com ninguém.</li>
-    <li>O app não tira fotografias nem capturas de ecrã.</li>
   </ul>
+
+  <h2>Gravações</h2>
+  <ul>
+    <li>O LCapture só grava depois de carregar em Gravar (ou F9) e para quando carrega em Parar,
+    fecha o app ou a fonte é desligada. Durante a gravação o botão mostra o tempo decorrido.</li>
+    <li>As gravações são ficheiros MP4 guardados na pasta que escolher (por omissão, Vídeos\LCapture).
+    Ficam só no seu computador: o app não as envia, não as copia para a nuvem e não as apaga.</li>
+    <li>Gravam o que vê no app, incluindo a sobreposição, o som da placa de captura e, se o
+    escolher, o do microfone.</li>
+  </ul>
+
+  <h2>Captura de janelas e do ecrã</h2>
+  <p>Se escolher uma janela (por exemplo, o browser) ou um ecrã inteiro como camada, o LCapture
+  mostra e, quando grava, grava o que aparecer nessa janela ou nesse ecrã. Tenha em atenção que isso
+  pode incluir dados pessoais visíveis, como emails, separadores ou notificações. Para o som, o app
+  ouve apenas a aplicação dessa janela (ou, num ecrã inteiro, todos os sons exceto os do próprio
+  LCapture), e só durante uma gravação. Só são capturadas as janelas que escolher na lista. O
+  Windows pode mostrar uma borda à volta da janela capturada.</p>
 
   <h2>Dados guardados no seu computador</h2>
   <p>Para se lembrar das suas preferências, o LCapture guarda um pequeno ficheiro de definições na
@@ -46,10 +69,15 @@
   <ul>
     <li>os identificadores técnicos das fontes de vídeo e de áudio escolhidas;</li>
     <li>a qualidade escolhida (resolução e taxa de quadros);</li>
-    <li>o volume, o estado de "mudo" e as definições do filtro de nitidez.</li>
+    <li>o volume, o estado de "mudo" e as definições do filtro de nitidez;</li>
+    <li>o microfone escolhido, o seu volume e se deve ser gravado;</li>
+    <li>as definições da gravação (resolução, taxa de quadros, qualidade e pasta);</li>
+    <li>as camadas da cena (posição, tamanho, opacidade) e cópias das imagens que escolher para
+    sobrepor (logótipos, molduras), guardadas na pasta de dados do app.</li>
   </ul>
-  <p>Este ficheiro nunca sai do seu computador. É apagado quando desinstala o app instalado pela
-  Microsoft Store.</p>
+  <p>Estes dados nunca saem do seu computador e não incluem que janelas capturou. É apagado quando
+  desinstala o app instalado pela Microsoft Store. As gravações não são apagadas ao desinstalar: são
+  ficheiros seus.</p>
 
   <h2>Dados que não recolhemos</h2>
   <p>O LCapture não tem contas de utilizador, publicidade, estatísticas de utilização, telemetria nem

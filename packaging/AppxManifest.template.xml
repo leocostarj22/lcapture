@@ -5,7 +5,8 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  xmlns:uap11="http://schemas.microsoft.com/appx/manifest/uap/windows10/11"
+  IgnorableNamespaces="uap rescap uap11">
 
   <Identity Name="$IdentityName$" Publisher="$Publisher$" Version="$Version$" ProcessorArchitecture="x64" />
 
@@ -40,7 +41,11 @@
   <Capabilities>
     <!-- Desktop (WPF) app: runs outside the app container. Standard for packaged desktop apps. -->
     <rescap:Capability Name="runFullTrust" />
-    <!-- Video and audio of the capture card; Windows asks the user on first use. -->
+    <!-- Window/screen layer (Windows.Graphics.Capture): capture the window the user picks from
+         LCapture's own list, and without the yellow frame on Windows 11. Ignored by older Windows. -->
+    <uap11:Capability Name="graphicsCaptureProgrammatic" />
+    <uap11:Capability Name="graphicsCaptureWithoutBorder" />
+    <!-- Video and audio of the capture card and the overlay webcam; Windows asks on first use. -->
     <DeviceCapability Name="webcam" />
     <DeviceCapability Name="microphone" />
   </Capabilities>
