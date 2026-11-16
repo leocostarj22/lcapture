@@ -5,6 +5,10 @@ o sinal de uma fonte de captura de vídeo USB (UVC), como uma placa de captura F
 ligada via HDMI. Usa a API nativa `Windows.Media.Capture` para obter os frames diretamente da placa
 com a maior qualidade/resolução nativa que ela anunciar, sem recompressão.
 
+## Instalar
+
+Disponível na Microsoft Store: https://apps.microsoft.com/detail/9MTK97FH4JQ0
+
 ## Requisitos
 
 - Windows 10 (1809+) ou Windows 11.

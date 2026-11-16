@@ -35,5 +35,5 @@
 - [x] Identidade real do Partner Center no pacote
 - [x] Política de privacidade no GitHub Pages, textos, capturas de ecrã e logótipos (`store/`)
 - [x] Envio 1 (v1.1.1.0) submetido para certificação em 14/11/2026
-- [ ] Aguardar certificação; corrigir o que o relatório apontar
-- [ ] Depois de publicado: link https://apps.microsoft.com/detail/9MTK97FH4JQ0 no README
+- [x] Certificado e publicado na Microsoft Store
+- [x] Link https://apps.microsoft.com/detail/9MTK97FH4JQ0 no README

@@ -1,0 +1,11 @@
+# Finais de linha LF no repositório e na pasta de trabalho, em Windows e WSL.
+* text=auto eol=lf
+
+# Binários
+*.png binary
+*.ico binary
+*.jpg binary
+*.cso binary
+*.msix binary
+*.exe binary
+*.dll binary
